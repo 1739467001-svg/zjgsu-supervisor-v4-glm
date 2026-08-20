@@ -1,4 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useActiveRole } from "@/hooks/useActiveRole";
+import { hasAnyRole } from "@shared/roles";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { BookOpen, ClipboardList, CheckCircle, Bell, TrendingUp, Users, Building2, Calendar } from "lucide-react";
@@ -23,31 +25,36 @@ const ROLE_COLORS: Record<string, string> = {
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const { activeRole } = useActiveRole();
   const [, navigate] = useLocation();
-  const role = user?.role || "user";
+  // 工作台卡片展示按"当前身份"切换；数据请求按用户完整权限集合预取，避免切换身份时的加载闪烁
+  const role = activeRole;
+  const canSupervise = hasAnyRole(user, ["supervisor_expert", "supervisor_leader", "graduate_admin", "admin"]);
+  const canViewAdminStats = hasAnyRole(user, ["graduate_admin", "admin"]);
+  const isSecretary = hasAnyRole(user, ["college_secretary"]);
 
   const { data: notifications } = trpc.notifications.list.useQuery();
   const unreadCount = notifications?.filter((n) => !n.isRead).length || 0;
 
   const { data: plans } = trpc.plans.myPlans.useQuery(undefined, {
-    enabled: ["supervisor_expert", "supervisor_leader", "admin"].includes(role),
+    enabled: canSupervise,
   });
 
   const { data: myEvals } = trpc.evaluations.myEvaluations.useQuery(undefined, {
-    enabled: ["supervisor_expert", "supervisor_leader", "admin"].includes(role),
+    enabled: canSupervise,
   });
 
   const { data: adminStats } = trpc.stats.adminDashboard.useQuery(undefined, {
-    enabled: ["graduate_admin", "admin"].includes(role),
+    enabled: canViewAdminStats,
   });
 
   const { data: collegeStats } = trpc.stats.collegeStats.useQuery({}, {
-    enabled: role === "college_secretary",
+    enabled: isSecretary,
   });
 
   // 动态获取全校课程总数（督导专家/组长角色使用）
   const { data: courseCountData } = trpc.stats.courseCount.useQuery(undefined, {
-    enabled: ["supervisor_expert", "supervisor_leader", "admin"].includes(role),
+    enabled: canSupervise,
   });
   const totalCourseCount = courseCountData?.total ?? "-";
 

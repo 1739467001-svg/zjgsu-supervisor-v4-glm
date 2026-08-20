@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { useLocation } from "wouter";
 import { Search, CheckCircle2, Clock, ChevronLeft, Star, BookOpen, Eye } from "lucide-react";
 import { formatDateOnlyBJ } from "@shared/dateUtils";
+import { hasAnyRole } from "@shared/roles";
 
 type ProgressTab = "all" | "evaluated" | "unevaluated";
 
@@ -18,8 +19,8 @@ export default function CourseProgress() {
   const [search, setSearch] = useState("");
   const [collegeFilter, setCollegeFilter] = useState("");
 
-  const isAdmin = ["graduate_admin", "admin"].includes(user?.role || "");
-  const isSecretary = user?.role === "college_secretary";
+  const isAdmin = hasAnyRole(user, ["graduate_admin", "admin"]);
+  const isSecretary = hasAnyRole(user, ["college_secretary"]);
 
   const { data: progressData, isLoading } = trpc.stats.courseProgress.useQuery(
     { college: isAdmin ? (collegeFilter || undefined) : undefined },
@@ -219,6 +220,11 @@ export default function CourseProgress() {
                             <div className="flex items-center gap-2 text-xs" style={{ color: "oklch(0.40 0.025 240)" }}>
                               <Eye className="w-3 h-3" style={{ color: "oklch(0.35 0.13 245)" }} />
                               <span>督导：{ev.supervisor?.name || "未知"}</span>
+                              {ev.actualWeek && (
+                                <span className="px-1.5 py-0.5 rounded-full" style={{ background: "oklch(0.93 0.018 240)", color: "oklch(0.35 0.13 245)" }}>
+                                  第{ev.actualWeek}周
+                                </span>
+                              )}
                               {ev.overallScore && (
                                 <span className="flex items-center gap-0.5">
                                   {Array.from({ length: 5 }).map((_, i) => (

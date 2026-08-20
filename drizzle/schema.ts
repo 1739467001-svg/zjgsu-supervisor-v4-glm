@@ -22,9 +22,11 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }),
   phone: varchar("phone", { length: 32 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  // 系统角色：督导专家、督导组长、学院教学秘书、研究生院主管
+  // 系统角色（主角色）：督导专家、督导组长、学院教学秘书、研究生院主管
   role: mysqlEnum("role", ["supervisor_expert", "supervisor_leader", "college_secretary", "graduate_admin", "user", "admin"]).default("user").notNull(),
-  // 所属学院（学院教学秘书用）
+  // 附加角色（多角色切换用，如同时具有"研究生院主管"和"督导专家"身份）
+  extraRoles: json("extraRoles").$type<string[]>(),
+  // 所属学院（学院教学秘书用；督导专家/组长设置此项即为"院级督导"仅本学院范围，不设置则为"校级督导"全校范围）
   college: varchar("college", { length: 128 }),
   // 备注（如“负责留学生”）
   remark: varchar("remark", { length: 256 }),

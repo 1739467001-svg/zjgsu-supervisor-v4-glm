@@ -5,6 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useLocation, useParams } from "wouter";
 import { ChevronLeft, Edit, Star, MapPin, Clock, User, Building2, Download, FileSpreadsheet, FileText } from "lucide-react";
 import { formatDateOnlyBJ } from "@shared/dateUtils";
+import { hasAnyRole } from "@shared/roles";
 import { toast } from "sonner";
 import DashboardLayout from "@/components/DashboardLayout";
 
@@ -78,8 +79,10 @@ export default function EvaluationDetail() {
   const { user } = useAuth();
   const evalId = parseInt(params.id || "0");
   const { data: evaluation, isLoading, error } = trpc.evaluations.getById.useQuery(evalId, { enabled: evalId > 0 });
-  const canEdit = ["supervisor_expert", "supervisor_leader", "admin"].includes(user?.role || "") && evaluation?.supervisorId === user?.id;
-  const canExport = ["graduate_admin", "admin", "college_secretary"].includes(user?.role || "");
+  const canEdit = hasAnyRole(user, ["supervisor_expert", "supervisor_leader", "graduate_admin", "admin"]) && evaluation?.supervisorId === user?.id;
+  const canExport =
+    hasAnyRole(user, ["graduate_admin", "admin", "college_secretary", "supervisor_leader"]) ||
+    (hasAnyRole(user, ["supervisor_expert"]) && evaluation?.supervisorId === user?.id);
 
   const exportExcelMutation = trpc.evaluations.exportSingleToExcel.useMutation({
     onSuccess: (data) => {

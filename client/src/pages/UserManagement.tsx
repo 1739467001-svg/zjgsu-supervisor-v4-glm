@@ -4,8 +4,20 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Search, Users, Shield, GraduationCap, Building2, User } from "lucide-react";
+import { Search, Users, Shield, GraduationCap, Building2, User, Settings2 } from "lucide-react";
+import { ASSIGNABLE_ROLES } from "@shared/roles";
 
 const ROLE_CONFIG: Record<string, { label: string; icon: React.ReactNode; color: string; bg: string }> = {
   supervisor_expert: { label: "督导专家", icon: <GraduationCap className="w-3.5 h-3.5" />, color: "oklch(0.35 0.13 245)", bg: "oklch(0.93 0.018 240)" },
@@ -16,9 +28,16 @@ const ROLE_CONFIG: Record<string, { label: string; icon: React.ReactNode; color:
   user: { label: "普通用户", icon: <User className="w-3.5 h-3.5" />, color: "oklch(0.52 0.025 240)", bg: "oklch(0.93 0.01 240)" },
 };
 
+const SUPERVISOR_ROLES = ["supervisor_expert", "supervisor_leader"];
+
 export default function UserManagement() {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
+  const [editDialog, setEditDialog] = useState<{ open: boolean; userId?: number; name?: string; extraRoles: string[]; college: string }>({
+    open: false,
+    extraRoles: [],
+    college: "",
+  });
   const utils = trpc.useUtils();
 
   const { data: users, isLoading } = trpc.users.list.useQuery();
@@ -30,6 +49,40 @@ export default function UserManagement() {
     },
     onError: (err) => toast.error(err.message),
   });
+
+  const updateExtraRolesMutation = trpc.users.updateExtraRoles.useMutation({
+    onError: (err) => toast.error(err.message),
+  });
+
+  const updateCollegeMutation = trpc.users.updateCollege.useMutation({
+    onError: (err) => toast.error(err.message),
+  });
+
+  const openEditDialog = (u: NonNullable<typeof users>[number]) => {
+    setEditDialog({ open: true, userId: u.id, name: u.name || "", extraRoles: (u as any).extraRoles || [], college: u.college || "" });
+  };
+
+  const toggleExtraRole = (role: string, checked: boolean) => {
+    setEditDialog((prev) => ({
+      ...prev,
+      extraRoles: checked ? Array.from(new Set([...prev.extraRoles, role])) : prev.extraRoles.filter((r) => r !== role),
+    }));
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editDialog.userId) return;
+    try {
+      await Promise.all([
+        updateExtraRolesMutation.mutateAsync({ userId: editDialog.userId, extraRoles: editDialog.extraRoles as any }),
+        updateCollegeMutation.mutateAsync({ userId: editDialog.userId, college: editDialog.college.trim() || null }),
+      ]);
+      toast.success("已保存");
+      utils.users.list.invalidate();
+      setEditDialog({ open: false, extraRoles: [], college: "" });
+    } catch (err: any) {
+      toast.error(err.message || "保存失败");
+    }
+  };
 
   const filtered = users?.filter((u) => {
     const matchSearch = !search || u.name?.includes(search) || u.employeeId?.includes(search) || u.college?.includes(search);
@@ -97,7 +150,7 @@ export default function UserManagement() {
               <table className="w-full text-sm">
                 <thead>
                   <tr style={{ background: "oklch(0.97 0.004 240)", borderBottom: "1px solid oklch(0.90 0.01 240)" }}>
-                    {["姓名", "工号", "学院", "联系方式", "角色", "操作"].map((h) => (
+                    {["姓名", "工号", "学院/督导范围", "联系方式", "角色", "附加角色", "操作"].map((h) => (
                       <th key={h} className="text-left px-4 py-3 text-xs font-semibold" style={{ color: "oklch(0.52 0.025 240)" }}>{h}</th>
                     ))}
                   </tr>
@@ -105,11 +158,23 @@ export default function UserManagement() {
                 <tbody>
                   {filtered.map((user) => {
                     const roleConf = ROLE_CONFIG[user.role || "user"] || ROLE_CONFIG.user;
+                    const isSupervisor = SUPERVISOR_ROLES.includes(user.role || "");
+                    const extraRoles: string[] = (user as any).extraRoles || [];
                     return (
                       <tr key={user.id} className="hover:bg-muted/30 transition-colors" style={{ borderBottom: "1px solid oklch(0.93 0.006 240)" }}>
                         <td className="px-4 py-3 font-medium" style={{ color: "oklch(0.20 0.025 240)" }}>{user.name}</td>
                         <td className="px-4 py-3 text-xs font-mono" style={{ color: "oklch(0.52 0.025 240)" }}>{user.employeeId}</td>
-                        <td className="px-4 py-3 text-xs max-w-[140px] truncate" style={{ color: "oklch(0.52 0.025 240)" }}>{user.college || "-"}</td>
+                        <td className="px-4 py-3 text-xs max-w-[160px]" style={{ color: "oklch(0.52 0.025 240)" }}>
+                          <span className="truncate block">{user.college || (isSupervisor ? "（未设置）" : "-")}</span>
+                          {isSupervisor && (
+                            <span
+                              className="inline-block mt-0.5 px-1.5 py-0.5 rounded-full text-xs"
+                              style={{ background: user.college ? "oklch(0.93 0.018 160)" : "oklch(0.93 0.018 240)", color: user.college ? "oklch(0.42 0.14 160)" : "oklch(0.35 0.13 245)" }}
+                            >
+                              {user.college ? "院级督导" : "校级督导"}
+                            </span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-xs" style={{ color: "oklch(0.52 0.025 240)" }}>{user.phone || "-"}</td>
                         <td className="px-4 py-3">
                           <span className="flex items-center gap-1 w-fit px-2 py-0.5 rounded-full text-xs font-medium" style={{ background: roleConf.bg, color: roleConf.color }}>
@@ -117,19 +182,35 @@ export default function UserManagement() {
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          <Select
-                            value={user.role || "user"}
-                            onValueChange={(newRole) => updateRoleMutation.mutate({ userId: user.id, role: newRole as any })}
-                          >
-                            <SelectTrigger className="h-7 w-32 text-xs">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {Object.entries(ROLE_CONFIG).map(([role, config]) => (
-                                <SelectItem key={role} value={role} className="text-xs">{config.label}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <div className="flex flex-wrap gap-1 max-w-[160px]">
+                            {extraRoles.length > 0 ? (
+                              extraRoles.map((r) => (
+                                <Badge key={r} variant="outline" className="text-xs h-5 px-1.5">{ROLE_CONFIG[r]?.label || r}</Badge>
+                              ))
+                            ) : (
+                              <span className="text-xs" style={{ color: "oklch(0.65 0.02 240)" }}>—</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1.5">
+                            <Select
+                              value={user.role || "user"}
+                              onValueChange={(newRole) => updateRoleMutation.mutate({ userId: user.id, role: newRole as any })}
+                            >
+                              <SelectTrigger className="h-7 w-28 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {Object.entries(ROLE_CONFIG).map(([role, config]) => (
+                                  <SelectItem key={role} value={role} className="text-xs">{config.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Button variant="outline" size="sm" className="h-7 w-7 p-0" title="设置附加角色 / 督导范围" onClick={() => openEditDialog(user)}>
+                              <Settings2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -143,6 +224,53 @@ export default function UserManagement() {
           </div>
         )}
       </div>
+
+      {/* 附加角色 / 督导范围 设置弹窗 */}
+      <Dialog open={editDialog.open} onOpenChange={(open) => setEditDialog((p) => ({ ...p, open }))}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>设置附加角色与督导范围</DialogTitle>
+            <DialogDescription>
+              {editDialog.name} · 多角色切换允许该用户在多个身份间随时切换；督导专家/组长设置了所属学院即为"院级督导"（仅本学院），留空则为"校级督导"（全校）。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label className="text-sm">附加角色（在主角色之外，可同时拥有）</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {ASSIGNABLE_ROLES.filter((r) => r !== "user").map((r) => (
+                  <label key={r} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <Checkbox
+                      checked={editDialog.extraRoles.includes(r)}
+                      onCheckedChange={(checked) => toggleExtraRole(r, checked === true)}
+                    />
+                    {ROLE_CONFIG[r]?.label || r}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="college-scope" className="text-sm">所属学院（督导范围 / 学院秘书管辖学院）</Label>
+              <Input
+                id="college-scope"
+                placeholder="留空 = 校级督导（全校）；填写学院名称 = 院级督导（仅本学院）"
+                value={editDialog.college}
+                onChange={(e) => setEditDialog((p) => ({ ...p, college: e.target.value }))}
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setEditDialog({ open: false, extraRoles: [], college: "" })}>取消</Button>
+            <Button
+              onClick={handleSaveEdit}
+              disabled={updateExtraRolesMutation.isPending || updateCollegeMutation.isPending}
+              style={{ background: "oklch(0.35 0.13 245)" }}
+            >
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }

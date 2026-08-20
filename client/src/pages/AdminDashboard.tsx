@@ -50,11 +50,17 @@ export default function AdminDashboard() {
     count: c.count,
   }));
 
-  const pieData = stats.evalByCollege.slice(0, 8).map((c, i) => ({
-    name: (c.college || "").length > 6 ? (c.college || "").slice(0, 6) + "…" : (c.college || ""),
-    value: c.count,
-    color: COLORS[i % COLORS.length],
-  }));
+  // 饼图取评价次数最高的前8个学院，其余聚合为"其他学院"，确保占比总和等于全部评价数据（与"评价次数"柱状图口径一致）
+  const pieTopColleges = stats.evalByCollege.slice(0, 8);
+  const pieOthersCount = stats.evalByCollege.slice(8).reduce((sum, c) => sum + c.count, 0);
+  const pieData = [
+    ...pieTopColleges.map((c, i) => ({
+      name: (c.college || "").length > 6 ? (c.college || "").slice(0, 6) + "…" : (c.college || ""),
+      value: c.count,
+      color: COLORS[i % COLORS.length],
+    })),
+    ...(pieOthersCount > 0 ? [{ name: "其他学院", value: pieOthersCount, color: "oklch(0.75 0.01 240)" }] : []),
+  ];
 
   return (
     <DashboardLayout>

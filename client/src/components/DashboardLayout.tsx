@@ -1,4 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useActiveRole } from "@/hooks/useActiveRole";
+import { ROLE_LABELS, getSupervisorRoleLabel } from "@shared/roles";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -54,15 +56,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { KeyRound, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
-
-const ROLE_LABELS: Record<string, string> = {
-  supervisor_expert: "督导专家",
-  supervisor_leader: "督导组长",
-  college_secretary: "学院教学秘书",
-  graduate_admin: "研究生院主管",
-  admin: "系统管理员",
-  user: "用户",
-};
 
 // 根据角色返回导航菜单
 function getMenuItems(role: string) {
@@ -122,6 +115,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
 function DashboardLayoutContent({ children, setSidebarWidth }: { children: React.ReactNode; setSidebarWidth: (w: number) => void }) {
   const { user, logout } = useAuth();
+  const { activeRole, setActiveRole, effectiveRoles, canSwitch } = useActiveRole();
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
@@ -160,7 +154,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
     changePasswordMutation.mutate({ oldPassword: oldPwd, newPassword: newPwd });
   };
 
-  const role = user?.role || "user";
+  const role = activeRole;
   const menuItems = getMenuItems(role);
 
   const { data: unreadCount = 0 } = trpc.notifications.unreadCount.useQuery(undefined, {
@@ -272,9 +266,25 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
               <DropdownMenuContent align="end" className="w-52">
                 <div className="px-3 py-2">
                   <p className="text-sm font-medium">{user?.name}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{ROLE_LABELS[role]}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{getSupervisorRoleLabel(user as any) !== "—" ? getSupervisorRoleLabel(user as any) : ROLE_LABELS[role]}</p>
                   {(user as any)?.college && <p className="text-xs text-muted-foreground truncate">{(user as any).college}</p>}
                 </div>
+                {canSwitch && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground">切换身份</div>
+                    {effectiveRoles.map((r) => (
+                      <DropdownMenuItem
+                        key={r}
+                        onClick={() => setActiveRole(r)}
+                        className="cursor-pointer justify-between"
+                      >
+                        <span>{ROLE_LABELS[r] || r}</span>
+                        {activeRole === r && <span className="text-xs" style={{ color: "oklch(0.35 0.13 245)" }}>当前</span>}
+                      </DropdownMenuItem>
+                    ))}
+                  </>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => setLocation("/notifications")} className="cursor-pointer">
                   <Bell className="mr-2 h-4 w-4" />

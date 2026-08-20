@@ -16,6 +16,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { hasAnyRole } from "@shared/roles";
 
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   draft: { label: "草稿", color: "oklch(0.52 0.025 240)", bg: "oklch(0.93 0.01 240)" },
@@ -25,10 +26,9 @@ const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }
 export default function EvaluationList() {
   const { user } = useAuth();
   const [, navigate] = useLocation();
-  const role = user?.role || "user";
-  const canEdit = ["supervisor_expert", "supervisor_leader", "admin"].includes(role);
-  const canViewAll = ["supervisor_leader", "graduate_admin", "admin"].includes(role);
-  const canExport = ["graduate_admin", "admin", "college_secretary"].includes(role);
+  const canEdit = hasAnyRole(user, ["supervisor_expert", "supervisor_leader", "graduate_admin", "admin"]);
+  const canViewAll = hasAnyRole(user, ["supervisor_leader", "college_secretary", "graduate_admin", "admin"]);
+  const canExport = hasAnyRole(user, ["graduate_admin", "admin", "college_secretary", "supervisor_leader", "supervisor_expert"]);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -167,7 +167,7 @@ export default function EvaluationList() {
                   <FileSpreadsheet className="w-4 h-4" style={{ color: "oklch(0.50 0.18 145)" }} />
                   <div>
                     <div className="text-sm font-medium">导出 Excel</div>
-                    <div className="text-xs" style={{ color: "oklch(0.55 0.02 240)" }}>按专业分类的数据表格</div>
+                    <div className="text-xs" style={{ color: "oklch(0.55 0.02 240)" }}>全部记录合并表格</div>
                   </div>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleExportPdf} className="gap-2 cursor-pointer">
@@ -203,7 +203,7 @@ export default function EvaluationList() {
                 <SelectItem value="submitted">已提交</SelectItem>
               </SelectContent>
             </Select>
-            {(canViewAll || role === "college_secretary") && (
+            {canViewAll && (
               <Select value={collegeFilter} onValueChange={setCollegeFilter}>
                 <SelectTrigger className="h-9 text-xs">
                   <SelectValue placeholder="选择学院" />

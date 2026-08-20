@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { Search, BookOpen, MapPin, Clock, User, Plus, ChevronLeft, ChevronRight, Filter, X, RefreshCw } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { hasAnyRole } from "@shared/roles";
 
 const WEEKDAYS = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"];
 const WEEKS = Array.from({ length: 19 }, (_, i) => i + 1);
@@ -28,8 +29,7 @@ const DEFAULT_FILTERS = {
 
 export default function CourseList() {
   const { user } = useAuth();
-  const role = user?.role || "user";
-  const canAddPlan = ["supervisor_expert", "supervisor_leader", "admin"].includes(role);
+  const canAddPlan = hasAnyRole(user, ["supervisor_expert", "supervisor_leader", "graduate_admin", "admin"]);
 
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
   const [planDialog, setPlanDialog] = useState<{ open: boolean; courseId?: number; courseName?: string }>({ open: false });

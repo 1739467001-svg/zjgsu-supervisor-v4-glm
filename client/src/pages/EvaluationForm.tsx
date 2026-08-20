@@ -322,7 +322,9 @@ export default function EvaluationForm() {
         setAutoSaveStatus('idle');
         return;
       }
-      const payload = { ...currentForm, courseId: resolvedCourseId, status: 'draft' as const };
+      // 保留当前评价的实际状态（已提交的记录在被打开编辑时不应被自动保存悄悄改回草稿）
+      const currentStatus = (existingEvalRef.current?.status as 'draft' | 'submitted' | undefined) || 'draft';
+      const payload = { ...currentForm, courseId: resolvedCourseId, status: currentStatus };
       autoSaveMutation.mutate({ id: actualEvalId, data: payload as any });
     }, 30000);
     
@@ -500,7 +502,7 @@ export default function EvaluationForm() {
               {/* 课程详细信息网格 */}
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mt-4 pt-4" style={{ borderTop: "1px solid oklch(0.93 0.006 240)" }}>
                 {/* 课程性质 */}
-                <div className="space-y-1">
+                <div className="space-y-1 min-w-0">
                   <p className="text-xs font-medium" style={{ color: "oklch(0.52 0.025 240)" }}>课程性质</p>
                   {targetCourse?.courseType ? (
                     <div className="inline-block px-2.5 py-1 rounded-full text-xs font-medium" style={{ background: "oklch(0.93 0.018 240)", color: "oklch(0.35 0.13 245)" }}>
@@ -512,7 +514,7 @@ export default function EvaluationForm() {
                 </div>
 
                 {/* 教室名称 */}
-                <div className="space-y-1">
+                <div className="space-y-1 min-w-0">
                   <p className="text-xs font-medium" style={{ color: "oklch(0.52 0.025 240)" }}>教室名称</p>
                   <p className="text-xs" style={{ color: "oklch(0.20 0.025 240)" }}>
                     {targetCourse?.classroom || "—"}
@@ -520,9 +522,9 @@ export default function EvaluationForm() {
                 </div>
 
                 {/* 学生专业 */}
-                <div className="space-y-1">
+                <div className="space-y-1 min-w-0">
                   <p className="text-xs font-medium" style={{ color: "oklch(0.52 0.025 240)" }}>学生专业</p>
-                  <p className="text-xs" style={{ color: "oklch(0.20 0.025 240)" }}>
+                  <p className="text-xs break-words" style={{ color: "oklch(0.20 0.025 240)" }}>
                     {targetCourse?.studentMajor ? (
                       <span className="line-clamp-2">{targetCourse.studentMajor}</span>
                     ) : (
@@ -532,7 +534,7 @@ export default function EvaluationForm() {
                 </div>
 
                 {/* 所选人数 */}
-                <div className="space-y-1">
+                <div className="space-y-1 min-w-0">
                   <p className="text-xs font-medium" style={{ color: "oklch(0.52 0.025 240)" }}>所选人数</p>
                   <p className="text-xs font-semibold" style={{ color: "oklch(0.35 0.13 245)" }}>
                     {targetCourse?.studentCount ?? "—"}
@@ -540,7 +542,7 @@ export default function EvaluationForm() {
                 </div>
 
                 {/* 班级编号 */}
-                <div className="space-y-1">
+                <div className="space-y-1 min-w-0">
                   <p className="text-xs font-medium" style={{ color: "oklch(0.52 0.025 240)" }}>班级编号</p>
                   <p className="text-xs" style={{ color: "oklch(0.20 0.025 240)" }}>
                     {targetCourse?.classId || "—"}

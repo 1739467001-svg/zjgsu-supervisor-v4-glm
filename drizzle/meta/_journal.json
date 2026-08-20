@@ -36,6 +36,13 @@
       "when": 1774341497752,
       "tag": "0004_jittery_spiral",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1776663000000,
+      "tag": "0005_add_user_extra_roles",
+      "breakpoints": true
     }
   ]
 }

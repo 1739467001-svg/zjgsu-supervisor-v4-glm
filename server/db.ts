@@ -113,16 +113,35 @@ export async function getAllUsers() {
   return db.select().from(users).orderBy(users.role, users.name);
 }
 
+/**
+ * 按角色查询用户，包含主角色匹配和附加角色（extraRoles）匹配，
+ * 确保拥有"附加角色"的多角色用户也能被相应角色的通知/列表查询到。
+ */
 export async function getUsersByRole(role: string) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(users).where(eq(users.role, role as any));
+  return db
+    .select()
+    .from(users)
+    .where(or(eq(users.role, role as any), sql`JSON_CONTAINS(${users.extraRoles}, ${JSON.stringify(role)})`));
 }
 
 export async function updateUserRole(userId: number, role: string) {
   const db = await getDb();
   if (!db) return;
   await db.update(users).set({ role: role as any }).where(eq(users.id, userId));
+}
+
+export async function updateUserExtraRoles(userId: number, extraRoles: string[]) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ extraRoles }).where(eq(users.id, userId));
+}
+
+export async function updateUserCollege(userId: number, college: string | null) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ college }).where(eq(users.id, userId));
 }
 
 /**
@@ -152,7 +171,18 @@ export async function getCourses(filters: {
 
   const conditions = [];
   // 严格过滤：只有非空字符串才作为筛选条件
-  if (filters.college && filters.college.trim()) conditions.push(eq(courses.college, filters.college.trim()));
+  // 学院支持多学院字符串（顿号/逗号分隔，供学院秘书/院级督导多学院场景使用），用模糊匹配逐一比对
+  if (filters.college && filters.college.trim()) {
+    const collegeList = filters.college
+      .split(/[、,，]/)
+      .map((c) => c.trim())
+      .filter(Boolean);
+    if (collegeList.length === 1) {
+      conditions.push(like(courses.college, `%${collegeList[0]}%`));
+    } else if (collegeList.length > 1) {
+      conditions.push(or(...collegeList.map((c) => like(courses.college, `%${c}%`)))!);
+    }
+  }
   if (filters.campus && filters.campus.trim()) conditions.push(eq(courses.campus, filters.campus.trim()));
   if (filters.weekday && filters.weekday.trim()) conditions.push(eq(courses.weekday, filters.weekday.trim()));
   if (filters.teacher && filters.teacher.trim()) conditions.push(like(courses.teacher, `%${filters.teacher.trim()}%`));
@@ -323,6 +353,42 @@ export async function updateListeningPlanStatus(planId: number, status: "pending
   await db.update(listeningPlans).set({ status }).where(eq(listeningPlans.id, planId));
 }
 
+/**
+ * 评价提交为"已提交"时，自动把对应督导专家在该课程下的待听课计划标记为"已评价"，
+ * 避免出现"评价已提交但待听课列表仍显示该课程"的问题。
+ * 优先匹配周次一致的计划，否则匹配任意一条待听课计划（含未指定周次的）。
+ * 返回被更新的 planId（若有），供写回 courseEvaluations.planId 使用。
+ */
+export async function completePendingPlanForEvaluation(
+  supervisorId: number,
+  courseId: number,
+  actualWeek?: number | null
+): Promise<number | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const pendingPlans = await db
+    .select({ id: listeningPlans.id, planWeek: listeningPlans.planWeek })
+    .from(listeningPlans)
+    .where(
+      and(
+        eq(listeningPlans.supervisorId, supervisorId),
+        eq(listeningPlans.courseId, courseId),
+        eq(listeningPlans.status, "pending")
+      )
+    );
+
+  if (pendingPlans.length === 0) return null;
+
+  const matched =
+    (actualWeek != null && pendingPlans.find((p) => p.planWeek === actualWeek)) ||
+    pendingPlans.find((p) => p.planWeek == null) ||
+    pendingPlans[0];
+
+  await db.update(listeningPlans).set({ status: "completed" }).where(eq(listeningPlans.id, matched.id));
+  return matched.id;
+}
+
 export async function deleteListeningPlan(planId: number) {
   const db = await getDb();
   if (!db) return;
@@ -454,16 +520,17 @@ export async function getAdminStats() {
     db.select({ count: sql<number>`count(*)` }).from(courseEvaluations).where(eq(courseEvaluations.status, "submitted")),
     // 督导专家数
     db.select({ count: sql<number>`count(*)` }).from(users).where(inArray(users.role, ["supervisor_expert", "supervisor_leader"] as any[])),
-    // 各学院评价次数
+    // 各学院评价次数（用 leftJoin 而非 innerJoin：课程被替换/删除后仍保留关联评价的行，
+    // 避免"孤儿评价"从学院维度统计中被静默丢弃，导致与总数 KPI 对不上）
     db
       .select({
-        college: courses.college,
+        college: sql<string>`COALESCE(${courses.college}, '未知学院（原课程已变更）')`,
         count: sql<number>`count(*)`,
       })
       .from(courseEvaluations)
-      .innerJoin(courses, eq(courseEvaluations.courseId, courses.id))
+      .leftJoin(courses, eq(courseEvaluations.courseId, courses.id))
       .where(eq(courseEvaluations.status, "submitted"))
-      .groupBy(courses.college)
+      .groupBy(sql`COALESCE(${courses.college}, '未知学院（原课程已变更）')`)
       .orderBy(desc(sql`count(*)`)),
     // 按星期分布
     db
@@ -472,7 +539,7 @@ export async function getAdminStats() {
         count: sql<number>`count(*)`,
       })
       .from(courseEvaluations)
-      .innerJoin(courses, eq(courseEvaluations.courseId, courses.id))
+      .leftJoin(courses, eq(courseEvaluations.courseId, courses.id))
       .where(eq(courseEvaluations.status, "submitted"))
       .groupBy(courses.weekday),
     // 最近评价
@@ -493,18 +560,19 @@ export async function getAdminStats() {
       .groupBy(courseEvaluations.supervisorId)
       .orderBy(desc(sql`count(*)`))
       .limit(10),
-    // 各学院平均评分
+    // 各学院平均评分（同样用 leftJoin 保留孤儿评价；按评价次数降序排列，
+    // 与"各学院督导评价次数"图表口径一致，避免两张图表因排序不同而展示不同的学院集合）
     db
       .select({
-        college: courses.college,
+        college: sql<string>`COALESCE(${courses.college}, '未知学院（原课程已变更）')`,
         avgScore: sql<number>`AVG(${courseEvaluations.overallScore})`,
         count: sql<number>`count(*)`,
       })
       .from(courseEvaluations)
-      .innerJoin(courses, eq(courseEvaluations.courseId, courses.id))
+      .leftJoin(courses, eq(courseEvaluations.courseId, courses.id))
       .where(and(eq(courseEvaluations.status, "submitted"), sql`${courseEvaluations.overallScore} IS NOT NULL`))
-      .groupBy(courses.college)
-      .orderBy(courses.college),
+      .groupBy(sql`COALESCE(${courses.college}, '未知学院（原课程已变更）')`)
+      .orderBy(desc(sql`count(*)`)),
   ]);
 
   // 获取最近评价的详细信息
@@ -622,6 +690,7 @@ export async function getCourseEvaluationProgress(college?: string) {
       supervisorId: courseEvaluations.supervisorId,
       overallScore: courseEvaluations.overallScore,
       status: courseEvaluations.status,
+      actualWeek: courseEvaluations.actualWeek,
       createdAt: courseEvaluations.createdAt,
     })
     .from(courseEvaluations)

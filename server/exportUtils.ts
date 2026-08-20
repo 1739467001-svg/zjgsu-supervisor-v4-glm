@@ -1,6 +1,7 @@
 import XLSX from "xlsx";
 import { CourseEvaluation } from "../drizzle/schema";
 import { formatDateOnlyBJ, formatDateBJ } from "../shared/dateUtils";
+import { getSupervisorRoleLabel } from "../shared/roles";
 
 interface EvaluationExportData extends CourseEvaluation {
   course?: {
@@ -19,6 +20,8 @@ interface EvaluationExportData extends CourseEvaluation {
   supervisor?: {
     name: string | null;
     email: string | null;
+    role?: string | null;
+    college?: string | null;
   };
 }
 
@@ -105,7 +108,7 @@ function createUniqueExcelSheetName(name: string, usedNames: Set<string>): strin
 }
 
 // ============================================================
-// Excel 导出：按专业分类（每个专业一个 Sheet）
+// Excel 导出：全部记录合并为一张数据表 + 一张专业汇总表
 // ============================================================
 export function generateEvaluationExcel(evaluations: EvaluationExportData[]): Buffer {
   const workbook = XLSX.utils.book_new();
@@ -114,84 +117,83 @@ export function generateEvaluationExcel(evaluations: EvaluationExportData[]): Bu
   // 只导出已提交的评价
   const submitted = evaluations.filter((e) => e.status === "submitted");
 
-  // 按学生专业分组
+  // 如果没有数据，创建空表
+  if (submitted.length === 0) {
+    const ws = XLSX.utils.aoa_to_sheet([["暂无已提交的评价数据"]]);
+    XLSX.utils.book_append_sheet(workbook, ws, createUniqueExcelSheetName("无数据", usedSheetNames));
+    return XLSX.write(workbook, { bookType: "xlsx", type: "buffer" });
+  }
+
+  // 全部记录合并为一张数据表
+  const rows = submitted.map((ev) => {
+    const c = (ev as any).course || {};
+    const s = (ev as any).supervisor || {};
+    const row: Record<string, any> = {
+      "课程名称": c.courseName || "—",
+      "主讲教师": c.teacher || "—",
+      "所属学院": c.college || "—",
+      "课程性质": c.courseType || "—",
+      "校区": c.campus || "—",
+      "班级编号": c.classId || "—",
+      "教室": c.classroom || "—",
+      "上课时间": `${c.weekday || ""} ${c.period || ""}`.trim() || "—",
+      "学生专业": c.studentMajor || "—",
+      "学生人数": c.studentCount || "—",
+      "督导专家": s.name || "—",
+      "督导角色": getSupervisorRoleLabel(s),
+      "听课日期": ev.listenDate ? formatDateOnlyBJ(ev.listenDate) : "—",
+      "实际周次": ev.actualWeek ? `第${ev.actualWeek}周` : "—",
+      "综合评分": ev.overallScore || "—",
+    };
+    // 添加所有评分维度列
+    for (const col of SCORE_COLUMNS) {
+      row[col.label] = (ev as any)[col.key] || "—";
+    }
+    // 文字评价
+    row["教学亮点"] = ev.highlights || "—";
+    row["不足与建议"] = ev.suggestions || "—";
+    row["综合改进建议"] = ev.improvement_suggestion || "—";
+    row["发展与支持建议"] = ev.development_suggestion || "—";
+    return row;
+  });
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+
+  // 设置列宽
+  const colWidths: { wch: number }[] = [
+    { wch: 22 }, // 课程名称
+    { wch: 12 }, // 主讲教师
+    { wch: 18 }, // 所属学院
+    { wch: 12 }, // 课程性质
+    { wch: 10 }, // 校区
+    { wch: 14 }, // 班级编号
+    { wch: 14 }, // 教室
+    { wch: 14 }, // 上课时间
+    { wch: 20 }, // 学生专业
+    { wch: 10 }, // 学生人数
+    { wch: 12 }, // 督导专家
+    { wch: 16 }, // 督导角色
+    { wch: 12 }, // 听课日期
+    { wch: 10 }, // 实际周次
+    { wch: 10 }, // 综合评分
+  ];
+  // 评分列
+  for (let i = 0; i < SCORE_COLUMNS.length; i++) {
+    colWidths.push({ wch: 14 });
+  }
+  // 文字评价列
+  colWidths.push({ wch: 30 }, { wch: 30 }, { wch: 30 }, { wch: 30 });
+  ws["!cols"] = colWidths;
+
+  XLSX.utils.book_append_sheet(workbook, ws, createUniqueExcelSheetName("评价数据", usedSheetNames));
+
+  // 按学生专业分组，添加汇总 Sheet
   const majorMap = new Map<string, EvaluationExportData[]>();
   for (const ev of submitted) {
     const major = (ev as any).course?.studentMajor || "未分类专业";
     if (!majorMap.has(major)) majorMap.set(major, []);
     majorMap.get(major)!.push(ev);
   }
-
-  // 如果没有数据，创建空表
-  if (majorMap.size === 0) {
-    const ws = XLSX.utils.aoa_to_sheet([["暂无已提交的评价数据"]]);
-    XLSX.utils.book_append_sheet(workbook, ws, createUniqueExcelSheetName("无数据", usedSheetNames));
-    return XLSX.write(workbook, { bookType: "xlsx", type: "buffer" });
-  }
-
-  // 为每个专业创建一个 Sheet
-  for (const [major, evals] of majorMap) {
-    const rows = evals.map((ev) => {
-      const c = (ev as any).course || {};
-      const s = (ev as any).supervisor || {};
-      const row: Record<string, any> = {
-        "课程名称": c.courseName || "—",
-        "主讲教师": c.teacher || "—",
-        "所属学院": c.college || "—",
-        "课程性质": c.courseType || "—",
-        "校区": c.campus || "—",
-        "班级编号": c.classId || "—",
-        "教室": c.classroom || "—",
-        "上课时间": `${c.weekday || ""} ${c.period || ""}`.trim() || "—",
-        "学生人数": c.studentCount || "—",
-        "督导专家": s.name || "—",
-        "听课日期": ev.listenDate ? formatDateOnlyBJ(ev.listenDate) : "—",
-        "实际周次": ev.actualWeek ? `第${ev.actualWeek}周` : "—",
-        "综合评分": ev.overallScore || "—",
-      };
-      // 添加所有评分维度列
-      for (const col of SCORE_COLUMNS) {
-        row[col.label] = (ev as any)[col.key] || "—";
-      }
-      // 文字评价
-      row["教学亮点"] = ev.highlights || "—";
-      row["不足与建议"] = ev.suggestions || "—";
-      row["综合改进建议"] = ev.improvement_suggestion || "—";
-      row["发展与支持建议"] = ev.development_suggestion || "—";
-      return row;
-    });
-
-    const ws = XLSX.utils.json_to_sheet(rows);
-
-    // 设置列宽
-    const colWidths: { wch: number }[] = [
-      { wch: 22 }, // 课程名称
-      { wch: 12 }, // 主讲教师
-      { wch: 18 }, // 所属学院
-      { wch: 12 }, // 课程性质
-      { wch: 10 }, // 校区
-      { wch: 14 }, // 班级编号
-      { wch: 14 }, // 教室
-      { wch: 14 }, // 上课时间
-      { wch: 10 }, // 学生人数
-      { wch: 12 }, // 督导专家
-      { wch: 12 }, // 听课日期
-      { wch: 10 }, // 实际周次
-      { wch: 10 }, // 综合评分
-    ];
-    // 评分列
-    for (let i = 0; i < SCORE_COLUMNS.length; i++) {
-      colWidths.push({ wch: 14 });
-    }
-    // 文字评价列
-    colWidths.push({ wch: 30 }, { wch: 30 }, { wch: 30 }, { wch: 30 });
-    ws["!cols"] = colWidths;
-
-    const sheetName = createUniqueExcelSheetName(major, usedSheetNames);
-    XLSX.utils.book_append_sheet(workbook, ws, sheetName);
-  }
-
-  // 添加汇总 Sheet
   const summaryRows = Array.from(majorMap.entries()).map(([major, evals]) => {
     const scores = evals.filter((e) => e.overallScore).map((e) => e.overallScore!);
     const avgScore = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(2) : "—";
@@ -234,9 +236,9 @@ function renderScoreCircles(value: number | null | undefined, max = 5): string {
   let circles = '';
   for (let i = 1; i <= max; i++) {
     const active = i <= value;
-    circles += `<span style="display:inline-block;width:20px;height:20px;border-radius:50%;border:1.5px solid #2c5282;background:${active ? '#2c5282' : '#fff'};color:${active ? '#fff' : '#2c5282'};font-size:10px;font-weight:bold;text-align:center;line-height:18px;margin-right:3px;vertical-align:middle;">${i}</span>`;
+    circles += `<span style="display:inline-block;width:20px;height:20px;border-radius:50%;border:1.5px solid #003c78;background:${active ? '#003c78' : '#fff'};color:${active ? '#fff' : '#003c78'};font-size:10px;font-weight:bold;text-align:center;line-height:18px;margin-right:3px;vertical-align:middle;">${i}</span>`;
   }
-  return `<span style="white-space:nowrap;">${circles}<span style="font-size:12px;font-weight:bold;color:#2c5282;margin-left:4px;vertical-align:middle;">${value}/${max}分</span></span>`;
+  return `<span style="white-space:nowrap;">${circles}<span style="font-size:12px;font-weight:bold;color:#003c78;margin-left:4px;vertical-align:middle;">${value}/${max}分</span></span>`;
 }
 
 /**
@@ -253,7 +255,7 @@ function renderSingleEvaluationHtml(ev: EvaluationExportData): string {
     ['校区', escapeHtml(c.campus) || '—', '教室', escapeHtml(c.classroom) || '—'],
     ['上课时间', `${escapeHtml(c.weekday) || ''} ${escapeHtml(c.period) || ''}`.trim() || '—', '学生人数', String(c.studentCount || '—')],
     ['督导专家', escapeHtml(s.name) || '—', '听课日期', ev.listenDate ? formatDateOnlyBJ(ev.listenDate) : '—'],
-    ['实际周次', ev.actualWeek ? `第${ev.actualWeek}周` : '—', '综合评分', ev.overallScore ? `<strong style="color:#2c5282;">${ev.overallScore.toFixed(1)}/5</strong>` : '—'],
+    ['实际周次', ev.actualWeek ? `第${ev.actualWeek}周` : '—', '综合评分', ev.overallScore ? `<strong style="color:#003c78;">${ev.overallScore.toFixed(1)}/5</strong>` : '—'],
   ];
 
   let infoTableRows = infoRows.map(([k1, v1, k2, v2]) =>
@@ -482,10 +484,10 @@ export function generatePrintableHtml(evaluations: EvaluationExportData[]): stri
     .col-indicator { width: 28%; font-weight: 500; }
     .col-desc { width: 45%; color: #555; font-size: 10px; }
     .col-score { width: 27%; text-align: center; }
-    .score-dot { display: inline-block; width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid #2c5282; font-size: 10px; font-weight: bold; text-align: center; line-height: 18px; margin-right: 2px; vertical-align: middle; }
-    .score-dot.active { background: #2c5282; color: #fff; }
-    .score-dot.inactive { background: #fff; color: #2c5282; }
-    .score-label { font-size: 12px; font-weight: bold; color: #2c5282; margin-left: 4px; vertical-align: middle; }
+    .score-dot { display: inline-block; width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid #003c78; font-size: 10px; font-weight: bold; text-align: center; line-height: 18px; margin-right: 2px; vertical-align: middle; }
+    .score-dot.active { background: #003c78; color: #fff; }
+    .score-dot.inactive { background: #fff; color: #003c78; }
+    .score-label { font-size: 12px; font-weight: bold; color: #003c78; margin-left: 4px; vertical-align: middle; }
     .text-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: 12px; }
     .text-table td { border: 1px solid #b0bec5; padding: 6px 8px; }
     .text-table .label { background: #eef2f7; font-weight: bold; width: 22%; vertical-align: top; }
@@ -535,7 +537,7 @@ export function generatePrintableHtml(evaluations: EvaluationExportData[]): stri
     const weekdayPeriod = ((escapeHtml(c.weekday) || '') + ' ' + (escapeHtml(c.period) || '')).trim() || '—';
     const listenDateStr = ev.listenDate ? formatDateOnlyBJ(ev.listenDate) : '—';
     const weekStr = ev.actualWeek ? '第' + ev.actualWeek + '周' : '—';
-    const scoreStr = ev.overallScore ? '<strong style="color:#2c5282;">' + ev.overallScore.toFixed(1) + '/5</strong>' : '—';
+    const scoreStr = ev.overallScore ? '<strong style="color:#003c78;">' + ev.overallScore.toFixed(1) + '/5</strong>' : '—';
 
     let infoHtml = '';
     infoHtml += buildInfoRow('课程名称', escapeHtml(c.courseName) || '—', '主讲教师', escapeHtml(c.teacher) || '—');
