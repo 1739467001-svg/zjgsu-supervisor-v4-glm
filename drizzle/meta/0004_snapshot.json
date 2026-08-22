@@ -168,36 +168,36 @@
           "notNull": false,
           "autoincrement": false
         },
-        "score_emotional_motivation": {
-          "name": "score_emotional_motivation",
+        "score_interaction_quality": {
+          "name": "score_interaction_quality",
           "type": "int",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "score_teaching_diversity": {
-          "name": "score_teaching_diversity",
+        "score_method_diversity": {
+          "name": "score_method_diversity",
           "type": "int",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "score_rhythm_transition": {
-          "name": "score_rhythm_transition",
+        "score_equal_dialogue": {
+          "name": "score_equal_dialogue",
           "type": "int",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "score_key_summary": {
-          "name": "score_key_summary",
+        "score_pace_control": {
+          "name": "score_pace_control",
           "type": "int",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "score_feedback_improvement": {
-          "name": "score_feedback_improvement",
+        "score_feedback": {
+          "name": "score_feedback",
           "type": "int",
           "primaryKey": false,
           "notNull": false,

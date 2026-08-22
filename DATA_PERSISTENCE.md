@@ -295,7 +295,48 @@ LIMIT 10;
 
 ---
 
-## 八、总结
+## 八、数据库结构体检（db-doctor）
+
+### 8.1 背景：一处历史遗留的列名不一致
+
+`course_evaluations` 表中「四、教学过程」的 5 个评分列，曾在代码里被改名，但**没有生成对应的迁移文件**，导致「迁移历史记录的列名」与「代码使用的列名」长期不一致：
+
+| 迁移历史中的列名 | 代码中的列名 | 对应评价指标 |
+|---|---|---|
+| `score_emotional_motivation` | `score_interaction_quality` | 1. 师生互动质量 |
+| `score_teaching_diversity` | `score_method_diversity` | 2. 教学方法多样性 |
+| `score_rhythm_transition` | `score_equal_dialogue` | 3. 平等交流氛围 |
+| `score_key_summary` | `score_pace_control` | 4. 节奏调控能力 |
+| `score_feedback_improvement` | `score_feedback` | 5. 即时反馈运用 |
+
+后果是每次执行 `drizzle-kit generate` 都会弹出「是新建列还是重命名列」的交互式询问，无法在自动化流程中使用。
+
+### 8.2 已做的修复
+
+迁移文件 `0001` 的建表语句与 `meta/*_snapshot.json` 已统一为新列名。这样处理是安全的：drizzle 判断迁移是否跳过**只比较 `__drizzle_migrations` 表里的 `created_at` 时间戳，不校验文件 hash**，因此修改早已应用过的迁移文件对现有数据库完全无副作用，同时能让全新部署直接建出正确的列名。
+
+> 之所以不采用「新增一个改名迁移」的方案：若数据库已是新列名，该迁移会执行失败并阻断整个部署。
+
+### 8.3 体检工具用法
+
+```bash
+node scripts/db-doctor.mjs        # 只读体检，不做任何修改
+node scripts/db-doctor.mjs --fix  # 仅在安全时执行重命名
+```
+
+工具会报告 5 个评分列的真实状态、`users.extraRoles` 是否就位、以及 drizzle 迁移进度。
+
+**若旧列中仍存有历史评分数据，工具会拒绝自动处理。** 因为这批列是评价指标体系重新设计的产物，并非逐一对应改名 —— 例如 `score_rhythm_transition`（节奏过渡）按位置会映射到 `score_equal_dialogue`（平等交流氛围），而语义上它更接近 `score_pace_control`（节奏调控能力）。强行按位置重命名不会丢数据，但会让历史评分张冠李戴。人工确认映射关系无误后，再执行：
+
+```bash
+node scripts/db-doctor.mjs --fix --accept-positional-mapping
+```
+
+工具始终使用 `CHANGE COLUMN` 重命名、**绝不 DROP 列**。这是有教训的：迁移 `0004` 处理 `text_*` 系列改名时采用了 ADD + DROP，原有数据被删除后才发现无法找回。
+
+---
+
+## 九、总结
 
 本系统通过以下措施确保数据持久化和安全性：
 
@@ -311,8 +352,10 @@ LIMIT 10;
 
 ✅ **权限隔离**：不同角色只能访问授权的数据
 
+✅ **结构一致性**：`db-doctor` 可随时校验数据库结构与代码是否一致（见第八章）
+
 ---
 
-**文档版本**：1.0  
-**最后更新**：2026-03-09  
+**文档版本**：1.1  
+**最后更新**：2026-08-22  
 **维护人**：系统管理员
