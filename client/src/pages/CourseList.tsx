@@ -11,9 +11,9 @@ import { Search, BookOpen, MapPin, Clock, User, Plus, ChevronLeft, ChevronRight,
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { hasAnyRole } from "@shared/roles";
+import { useSemester } from "@/hooks/useSemester";
 
 const WEEKDAYS = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"];
-const WEEKS = Array.from({ length: 19 }, (_, i) => i + 1);
 const CAMPUSES = ["下沙", "教工路"];
 
 const DEFAULT_FILTERS = {
@@ -29,6 +29,7 @@ const DEFAULT_FILTERS = {
 
 export default function CourseList() {
   const { user } = useAuth();
+  const { weeks: WEEKS } = useSemester();
   const canAddPlan = hasAnyRole(user, ["supervisor_expert", "supervisor_leader", "graduate_admin", "admin"]);
 
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });

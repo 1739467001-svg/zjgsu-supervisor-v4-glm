@@ -133,7 +133,7 @@ async function main() {
       }
     }
 
-    // ---- 2. users.extraRoles（本次多角色功能新增）----
+    // ---- 2. users.extraRoles（多角色功能）----
     log("\n── users.extraRoles（多角色切换功能所需）──");
     const userCols = await getColumns(conn, "users");
     if (userCols.has("extraRoles")) {
@@ -143,9 +143,44 @@ async function main() {
       healthy = false;
     }
 
+    // ---- 3. 学期配置 ----
+    log("\n── 学期配置（semesters）──");
+    try {
+      const [semRows] = await conn.query(
+        "SELECT id, academicYear, name, startDate, totalWeeks, isActive FROM `semesters` ORDER BY startDate DESC"
+      );
+      if (semRows.length === 0) {
+        log("  ! 未配置任何学期，系统以内置默认值运行（建议在「统计仪表盘 → 学期配置」新建）");
+        healthy = false;
+      } else {
+        const actives = semRows.filter((r) => r.isActive);
+        for (const r of semRows) {
+          log(`  ${r.isActive ? "▶" : " "} ${r.academicYear} ${r.name}：起始 ${r.startDate}，共 ${r.totalWeeks} 周${r.isActive ? "（当前学期）" : ""}`);
+        }
+        if (actives.length !== 1) {
+          log(`  ! 当前学期应有且仅有 1 个，实际为 ${actives.length} 个`);
+          healthy = false;
+        }
+        const [orphan] = await conn.query(
+          "SELECT COUNT(*) AS n FROM `course_evaluations` WHERE `semesterId` IS NULL"
+        );
+        if (Number(orphan[0]?.n || 0) > 0) {
+          log(`  ! 有 ${orphan[0].n} 条评价未归属任何学期（跨学期统计会遗漏）`);
+          healthy = false;
+        }
+      }
+    } catch (err) {
+      if (err?.code === "ER_NO_SUCH_TABLE") {
+        log("  ✗ semesters 表不存在 —— 需执行迁移 0006（pnpm db:push）");
+        healthy = false;
+      } else {
+        log(`  查询失败：${err.message}`);
+      }
+    }
+
     await reportMigrationState(conn);
 
-    // ---- 3. 结论与处置 ----
+    // ---- 4. 结论与处置 ----
     log("\n── 结论 ──");
 
     if (healthy) {

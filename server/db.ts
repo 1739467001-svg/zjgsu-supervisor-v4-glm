@@ -8,11 +8,13 @@ import {
   InsertCourseEvaluation,
   InsertListeningPlan,
   InsertNotification,
+  InsertSemester,
   InsertUser,
   courses,
   courseEvaluations,
   listeningPlans,
   notifications,
+  semesters,
   users,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
@@ -151,6 +153,68 @@ export async function updateUserPassword(userId: number, newPassword: string) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.update(users).set({ password: newPassword, updatedAt: new Date() }).where(eq(users.id, userId));
+}
+
+// ============================================================
+// 学期相关（学期起始日与周数改为可配置，替代写死的常量）
+// ============================================================
+
+/** 当前学期；未配置任何学期时返回 undefined，调用方回退到 DEFAULT_SEMESTER */
+export async function getActiveSemester() {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(semesters).where(eq(semesters.isActive, true)).limit(1);
+  return rows.length > 0 ? rows[0] : undefined;
+}
+
+export async function listSemesters() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(semesters).orderBy(desc(semesters.startDate));
+}
+
+export async function getSemesterById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(semesters).where(eq(semesters.id, id)).limit(1);
+  return rows.length > 0 ? rows[0] : undefined;
+}
+
+export async function createSemester(data: InsertSemester) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+
+  const duplicate = await db
+    .select({ id: semesters.id })
+    .from(semesters)
+    .where(and(eq(semesters.academicYear, data.academicYear!), eq(semesters.name, data.name!)))
+    .limit(1);
+  if (duplicate.length > 0) {
+    throw new Error(`学期「${data.academicYear} ${data.name}」已存在`);
+  }
+
+  await db.insert(semesters).values({ ...data, isActive: false });
+  const rows = await db
+    .select()
+    .from(semesters)
+    .where(and(eq(semesters.academicYear, data.academicYear!), eq(semesters.name, data.name!)))
+    .limit(1);
+  return rows[0];
+}
+
+/** 切换当前学期：先全部置为非当前，再单独启用目标学期，保证全表仅一条为 true */
+export async function setActiveSemester(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(semesters).set({ isActive: false }).where(eq(semesters.isActive, true));
+  await db.update(semesters).set({ isActive: true }).where(eq(semesters.id, id));
+}
+
+export async function updateSemester(id: number, data: Partial<InsertSemester>) {
+  const db = await getDb();
+  if (!db) return;
+  const { isActive, ...rest } = data;
+  await db.update(semesters).set(rest).where(eq(semesters.id, id));
 }
 
 // ============================================================
@@ -309,13 +373,16 @@ export async function getUsedWeeksForCourse(supervisorId: number, courseId: numb
   return { usedWeeks, evaluatedWeeks };
 }
 
-export async function getListeningPlansBySupervisor(supervisorId: number) {
+export async function getListeningPlansBySupervisor(supervisorId: number, semesterId?: number) {
   const db = await getDb();
   if (!db) return [];
+  const conditions = [eq(listeningPlans.supervisorId, supervisorId)];
+  // 按学期隔离：避免新学期的待听课列表混入上学期遗留计划
+  if (semesterId != null) conditions.push(eq(listeningPlans.semesterId, semesterId));
   const plans = await db
     .select()
     .from(listeningPlans)
-    .where(eq(listeningPlans.supervisorId, supervisorId))
+    .where(and(...conditions))
     .orderBy(desc(listeningPlans.createdAt));
 
   // 关联课程信息
@@ -430,23 +497,26 @@ export async function getEvaluationById(id: number) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function getEvaluationsBySupervisor(supervisorId: number) {
+export async function getEvaluationsBySupervisor(supervisorId: number, semesterId?: number) {
   const db = await getDb();
   if (!db) return [];
+  const conditions = [eq(courseEvaluations.supervisorId, supervisorId)];
+  if (semesterId != null) conditions.push(eq(courseEvaluations.semesterId, semesterId));
   const evals = await db
     .select()
     .from(courseEvaluations)
-    .where(eq(courseEvaluations.supervisorId, supervisorId))
+    .where(and(...conditions))
     .orderBy(desc(courseEvaluations.createdAt));
 
   return enrichEvaluations(evals);
 }
 
-export async function getAllEvaluations(filters?: { college?: string; supervisorId?: number }) {
+export async function getAllEvaluations(filters?: { college?: string; supervisorId?: number; semesterId?: number }) {
   const db = await getDb();
   if (!db) return [];
   const conditions = [];
   if (filters?.supervisorId) conditions.push(eq(courseEvaluations.supervisorId, filters.supervisorId));
+  if (filters?.semesterId != null) conditions.push(eq(courseEvaluations.semesterId, filters.semesterId));
 
   const evals = await db
     .select()

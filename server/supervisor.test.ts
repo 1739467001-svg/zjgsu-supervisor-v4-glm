@@ -5,6 +5,11 @@ import type { TrpcContext } from "./_core/context";
 // Mock db module
 vi.mock("./db", () => ({
   getCourses: vi.fn().mockResolvedValue({ courses: [], total: 0 }),
+  getActiveSemester: vi.fn().mockResolvedValue({ id: 1, academicYear: "2025-2026", name: "第二学期", startDate: "2026-03-02", totalWeeks: 19 }),
+  listSemesters: vi.fn().mockResolvedValue([]),
+  createSemester: vi.fn().mockResolvedValue({ id: 1 }),
+  setActiveSemester: vi.fn().mockResolvedValue(undefined),
+  updateSemester: vi.fn().mockResolvedValue(undefined),
   getCourseById: vi.fn().mockResolvedValue(null),
   getDistinctColleges: vi.fn().mockResolvedValue([]),
   getDistinctTeachers: vi.fn().mockResolvedValue([]),

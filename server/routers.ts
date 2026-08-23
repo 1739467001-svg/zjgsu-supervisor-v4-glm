@@ -8,6 +8,11 @@ import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
   completePendingPlanForEvaluation,
   createEvaluation,
+  createSemester,
+  getActiveSemester,
+  listSemesters,
+  setActiveSemester,
+  updateSemester,
   createListeningPlan,
   createNotification,
   deleteEvaluation,
@@ -242,9 +247,11 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         const course = await ensureCourseExists(input.courseId);
         ensureCourseInScope(ctx.user!, course);
+        const activeSemester = await getActiveSemester();
         return createListeningPlan({
           supervisorId: ctx.user!.id,
           courseId: input.courseId,
+          semesterId: activeSemester?.id,
           planWeek: input.planWeek,
           note: input.note,
           status: "pending",
@@ -252,7 +259,9 @@ export const appRouter = router({
       }),
 
     myPlans: supervisorProcedure.query(async ({ ctx }) => {
-      return getListeningPlansBySupervisor(ctx.user!.id);
+      // 只返回当前学期的计划，避免混入往期遗留
+      const activeSemester = await getActiveSemester();
+      return getListeningPlansBySupervisor(ctx.user!.id, activeSemester?.id);
     }),
 
     updateStatus: supervisorProcedure
@@ -281,9 +290,11 @@ export const appRouter = router({
       const course = await ensureCourseExists(input.courseId);
       ensureCourseInScope(ctx.user!, course);
 
+      const activeSemester = await getActiveSemester();
       const evaluation = await createEvaluation({
         ...input,
         supervisorId: ctx.user!.id,
+        semesterId: activeSemester?.id,
         listenDate: input.listenDate ? new Date(input.listenDate) : undefined,
       });
 
@@ -594,6 +605,56 @@ export const appRouter = router({
 
     markAllRead: protectedProcedure.mutation(async ({ ctx }) => {
       await markAllNotificationsRead(ctx.user!.id);
+      return { success: true };
+    }),
+  }),
+
+  // ============================================================
+  // 学期管理（研究生院主管）
+  // ============================================================
+  semesters: router({
+    // 当前学期：所有登录用户都需要（前端据此计算周次、限定可选日期范围）
+    active: protectedProcedure.query(async () => {
+      const s = await getActiveSemester();
+      if (!s) return null;
+      return { id: s.id, academicYear: s.academicYear, name: s.name, startDate: s.startDate, totalWeeks: s.totalWeeks };
+    }),
+
+    list: protectedProcedure.query(async () => listSemesters()),
+
+    create: adminProcedure
+      .input(
+        z.object({
+          academicYear: z.string().min(1, "请填写学年"),
+          name: z.string().min(1, "请填写学期名称"),
+          startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "开始日期格式应为 YYYY-MM-DD"),
+          totalWeeks: z.number().int().min(1).max(30),
+        })
+      )
+      .mutation(async ({ input }) => {
+        try {
+          return await createSemester(input);
+        } catch (err: any) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: err.message || "创建学期失败" });
+        }
+      }),
+
+    update: adminProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "开始日期格式应为 YYYY-MM-DD").optional(),
+          totalWeeks: z.number().int().min(1).max(30).optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const { id, ...rest } = input;
+        await updateSemester(id, rest);
+        return { success: true };
+      }),
+
+    setActive: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      await setActiveSemester(input.id);
       return { success: true };
     }),
   }),

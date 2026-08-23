@@ -43,6 +43,13 @@
       "when": 1776663000000,
       "tag": "0005_add_user_extra_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1787497651036,
+      "tag": "0006_careless_romulus",
+      "breakpoints": true
     }
   ]
 }

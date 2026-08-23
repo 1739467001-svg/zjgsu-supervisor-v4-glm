@@ -1,4 +1,5 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import SemesterSettings from "@/components/SemesterSettings";
 import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, RadarChart, Radar, PolarGrid, PolarAngleAxis } from "recharts";
@@ -202,6 +203,9 @@ export default function AdminDashboard() {
             </div>
           </div>
         )}
+
+        {/* 学期配置 */}
+        <SemesterSettings />
 
         {/* 全校各学院评价进度 */}
         <div className="bg-white rounded-xl p-5" style={{ border: "1px solid oklch(0.90 0.01 240)" }}>

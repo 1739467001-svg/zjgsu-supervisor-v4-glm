@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { useLocation, useParams } from "wouter";
 import { ChevronLeft, Save, Send, Star } from "lucide-react";
+import { useSemester } from "@/hooks/useSemester";
 import { calculateWeekFromDate, calculateDateRangeFromWeek, getMinSelectableDate, getMaxSelectableDate, isValidFutureDate, getTodayBJ, formatTimeBJ } from "@shared/dateUtils";
 
 // 评分按钮组件
@@ -64,7 +65,6 @@ function ScoreItem({ label, description, value, onChange, max = 5, required = fa
   );
 }
 
-const WEEKS = Array.from({ length: 19 }, (_, i) => i + 1);
 
 // 定量评分维度的标题和指标（与督导评价表格完全对应）
 const EVALUATION_DIMENSIONS = {
@@ -114,6 +114,8 @@ const EVALUATION_DIMENSIONS = {
 export default function EvaluationForm() {
   const [, navigate] = useLocation();
   const { courseId: courseIdStr } = useParams();
+  // 学期起始日与周数来自服务端配置；加载完成前回退到默认值
+  const { semester, weeks: WEEKS } = useSemester();
   
   // 编辑模式：路径包含 /edit 即为编辑模式（同步判断，避免异步问题）
   const isEditMode = window.location.pathname.includes('/edit');
@@ -135,7 +137,7 @@ export default function EvaluationForm() {
   // 计算当天日期和对应周次的默认值
   const getTodayDefaults = () => {
     const today = getTodayBJ();
-    const week = calculateWeekFromDate(today);
+    const week = calculateWeekFromDate(today, semester);
     return { listenDate: today, actualWeek: week };
   };
 
@@ -228,8 +230,22 @@ export default function EvaluationForm() {
     }
   }, [isEdit, existingEval, hasLoadedEval]);
 
-  const minDate = getMinSelectableDate();
-  const maxDate = getMaxSelectableDate();
+  // 学期配置是异步取回的，首屏用的是默认值。若此时用户尚未改动过日期，
+  // 需按真实学期重算默认周次，否则新学期下会显示上一学期的周次。
+  const semesterStartRef = useRef(semester.startDate);
+  useEffect(() => {
+    if (semesterStartRef.current === semester.startDate) return;
+    semesterStartRef.current = semester.startDate;
+    if (isEdit) return;
+    setForm((p) =>
+      p.listenDate === todayDefaults.listenDate
+        ? { ...p, actualWeek: calculateWeekFromDate(p.listenDate, semester) }
+        : p
+    );
+  }, [semester.startDate, semester.totalWeeks, isEdit, todayDefaults.listenDate]);
+
+  const minDate = getMinSelectableDate(semester);
+  const maxDate = getMaxSelectableDate(semester);
 
   const utils = trpc.useUtils();
 
@@ -364,12 +380,12 @@ export default function EvaluationForm() {
 
   // 处理听课日期变化 - 自动计算周次
   const handleListenDateChange = (date: string) => {
-    if (!isValidFutureDate(date)) {
+    if (!isValidFutureDate(date, semester)) {
       toast.error("请选择本学期范围内的日期");
       return;
     }
-    
-    const week = calculateWeekFromDate(date);
+
+    const week = calculateWeekFromDate(date, semester);
     setForm((p) => ({ ...p, listenDate: date, actualWeek: week }));
   };
 
@@ -381,7 +397,7 @@ export default function EvaluationForm() {
     }
     
     const week = parseInt(weekStr);
-    const dateRange = calculateDateRangeFromWeek(week);
+    const dateRange = calculateDateRangeFromWeek(week, semester);
     if (dateRange) {
       setForm((p) => ({ ...p, actualWeek: week, listenDate: dateRange.startDate }));
     }

@@ -41,6 +41,28 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
 // ============================================================
+// 学期表（学期起始日与周数改为可配置，替代此前写死在 shared/const.ts 的常量）
+// ============================================================
+export const semesters = mysqlTable("semesters", {
+  id: int("id").autoincrement().primaryKey(),
+  // 学年，如 "2025-2026"
+  academicYear: varchar("academicYear", { length: 16 }).notNull(),
+  // 学期名，如 "第二学期"
+  name: varchar("name", { length: 32 }).notNull(),
+  // 学期第一周的开始日期，用字符串存储避免时区歧义
+  startDate: varchar("startDate", { length: 10 }).notNull(),
+  // 学期总周数
+  totalWeeks: int("totalWeeks").default(19).notNull(),
+  // 是否为当前学期（全表应仅有一条为 true）
+  isActive: boolean("isActive").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Semester = typeof semesters.$inferSelect;
+export type InsertSemester = typeof semesters.$inferInsert;
+
+// ============================================================
 // 课程表（来自全校总课表2026-03-01.xls，1344条记录）
 // ============================================================
 export const courses = mysqlTable("courses", {
@@ -92,6 +114,8 @@ export const listeningPlans = mysqlTable("listening_plans", {
   supervisorId: int("supervisorId").notNull(),
   // 课程ID
   courseId: int("courseId").notNull(),
+  // 所属学期（跨学期隔离，避免新学期的待听课列表混入上学期遗留计划）
+  semesterId: int("semesterId"),
   // 计划听课的周次
   planWeek: int("planWeek"),
   // 状态：pending=待听课, completed=已评价, cancelled=已取消
@@ -116,6 +140,8 @@ export const courseEvaluations = mysqlTable("course_evaluations", {
   supervisorId: int("supervisorId").notNull(),
   // 课程ID
   courseId: int("courseId").notNull(),
+  // 所属学期（历史评价按学期归档隔离）
+  semesterId: int("semesterId"),
   // 听课日期
   listenDate: timestamp("listenDate"),
   // 实际听课周次

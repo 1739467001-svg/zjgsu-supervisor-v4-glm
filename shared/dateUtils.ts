@@ -1,6 +1,18 @@
 import { SEMESTER_START_DATE, WEEKS_IN_SEMESTER, TIMEZONE } from "./const";
 
 /**
+ * 学期配置。学期起始日与总周数原本写死在 shared/const.ts，跨学期即失效；
+ * 现改为可传入，未传时回退到常量默认值，保持既有调用方不受影响。
+ * 服务端从 semesters 表读取当前学期，前端经 tRPC 取得后传入。
+ */
+export type SemesterConfig = { startDate: string; totalWeeks: number };
+
+export const DEFAULT_SEMESTER: SemesterConfig = {
+  startDate: SEMESTER_START_DATE,
+  totalWeeks: WEEKS_IN_SEMESTER,
+};
+
+/**
  * 获取北京时间的今天日期字符串（YYYY-MM-DD）
  * 无论浏览器/服务器在哪个时区，都返回北京时间的日期
  */
@@ -30,7 +42,7 @@ function parseDateBJ(dateStr: string): Date {
  * @param listenDate 听课日期 (YYYY-MM-DD 格式或 Date 对象)
  * @returns 周次 (1-19) 或 undefined 如果日期超出学期范围
  */
-export function calculateWeekFromDate(listenDate: string | Date): number | undefined {
+export function calculateWeekFromDate(listenDate: string | Date, semester: SemesterConfig = DEFAULT_SEMESTER): number | undefined {
   let dateStr: string;
   if (typeof listenDate === "string") {
     dateStr = listenDate;
@@ -45,7 +57,7 @@ export function calculateWeekFromDate(listenDate: string | Date): number | undef
   }
 
   const date = parseDateBJ(dateStr);
-  const startDate = parseDateBJ(SEMESTER_START_DATE);
+  const startDate = parseDateBJ(semester.startDate);
 
   // 计算天数差
   const diffMs = date.getTime() - startDate.getTime();
@@ -55,7 +67,7 @@ export function calculateWeekFromDate(listenDate: string | Date): number | undef
   const week = Math.floor(diffDays / 7) + 1;
 
   // 检查是否在有效范围内
-  if (week < 1 || week > WEEKS_IN_SEMESTER) {
+  if (week < 1 || week > semester.totalWeeks) {
     return undefined;
   }
 
@@ -67,12 +79,12 @@ export function calculateWeekFromDate(listenDate: string | Date): number | undef
  * @param week 周次 (1-19)
  * @returns { startDate, endDate } 该周的起始和结束日期 (YYYY-MM-DD)，或 undefined 如果周次无效
  */
-export function calculateDateRangeFromWeek(week: number): { startDate: string; endDate: string } | undefined {
-  if (week < 1 || week > WEEKS_IN_SEMESTER) {
+export function calculateDateRangeFromWeek(week: number, semester: SemesterConfig = DEFAULT_SEMESTER): { startDate: string; endDate: string } | undefined {
+  if (week < 1 || week > semester.totalWeeks) {
     return undefined;
   }
 
-  const startDate = parseDateBJ(SEMESTER_START_DATE);
+  const startDate = parseDateBJ(semester.startDate);
   startDate.setDate(startDate.getDate() + (week - 1) * 7);
 
   const endDate = new Date(startDate);
@@ -97,8 +109,8 @@ export function calculateDateRangeFromWeek(week: number): { startDate: string; e
  * 获取当前时间对应的周次
  * @returns 当前周次 (1-19) 或 undefined 如果当前时间超出学期范围
  */
-export function getCurrentWeek(): number | undefined {
-  return calculateWeekFromDate(new Date());
+export function getCurrentWeek(semester: SemesterConfig = DEFAULT_SEMESTER): number | undefined {
+  return calculateWeekFromDate(new Date(), semester);
 }
 
 /**
@@ -106,7 +118,7 @@ export function getCurrentWeek(): number | undefined {
  * @param date 待检查的日期
  * @returns true 如果日期有效，false 否则
  */
-export function isValidFutureDate(date: string | Date): boolean {
+export function isValidFutureDate(date: string | Date, semester: SemesterConfig = DEFAULT_SEMESTER): boolean {
   let dateStr: string;
   if (typeof date === "string") {
     dateStr = date;
@@ -120,10 +132,10 @@ export function isValidFutureDate(date: string | Date): boolean {
   }
 
   const checkDate = parseDateBJ(dateStr);
-  const startDate = parseDateBJ(SEMESTER_START_DATE);
+  const startDate = parseDateBJ(semester.startDate);
 
-  const endDate = parseDateBJ(SEMESTER_START_DATE);
-  endDate.setDate(endDate.getDate() + (WEEKS_IN_SEMESTER - 1) * 7 + 6);
+  const endDate = parseDateBJ(semester.startDate);
+  endDate.setDate(endDate.getDate() + (semester.totalWeeks - 1) * 7 + 6);
 
   return checkDate.getTime() >= startDate.getTime() && checkDate.getTime() <= endDate.getTime();
 }
@@ -132,17 +144,17 @@ export function isValidFutureDate(date: string | Date): boolean {
  * 获取最小可选日期（学期第一天）
  * @returns 最小日期的 YYYY-MM-DD 格式字符串
  */
-export function getMinSelectableDate(): string {
-  return SEMESTER_START_DATE;
+export function getMinSelectableDate(semester: SemesterConfig = DEFAULT_SEMESTER): string {
+  return semester.startDate;
 }
 
 /**
  * 获取最大可选日期（学期最后一天）
  * @returns 最大日期的 YYYY-MM-DD 格式字符串
  */
-export function getMaxSelectableDate(): string {
-  const endDate = parseDateBJ(SEMESTER_START_DATE);
-  endDate.setDate(endDate.getDate() + (WEEKS_IN_SEMESTER - 1) * 7 + 6);
+export function getMaxSelectableDate(semester: SemesterConfig = DEFAULT_SEMESTER): string {
+  const endDate = parseDateBJ(semester.startDate);
+  endDate.setDate(endDate.getDate() + (semester.totalWeeks - 1) * 7 + 6);
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: TIMEZONE,
     year: "numeric",
