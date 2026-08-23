@@ -76,6 +76,30 @@ export function getScopedCollege(user?: RoleAwareUser | null): string | undefine
   return undefined;
 }
 
+/** 去掉学院名中的括号补充说明，如「金融学院（浙商资产管理学院）」→「金融学院」 */
+function stripCollegeSuffix(name: string): string {
+  return name.replace(/（.*?）/g, "").replace(/\(.*?\)/g, "").trim();
+}
+
+/**
+ * 判断某门课程的开课学院是否落在给定的督导/管理范围内。
+ *
+ * scopedCollege 可包含多个学院（顿号/逗号分隔，供一人管多院的场景使用）；
+ * 比对时两侧都会去掉括号补充说明，并做双向包含匹配，以容忍
+ * 「金融学院」与「金融学院（浙商资产管理学院）」这类简称/全称差异。
+ *
+ * 注意：本函数是权限判定与人员导入校验的唯一事实来源，两处必须使用同一套规则，
+ * 否则会出现「导入时校验通过、实际使用时无权限」的不一致。
+ */
+export function isCollegeInScope(scopedCollege: string, courseCollege: string | null | undefined): boolean {
+  const scopedList = scopedCollege
+    .split(/[、,，]/)
+    .map((c) => stripCollegeSuffix(c))
+    .filter(Boolean);
+  const target = stripCollegeSuffix(courseCollege || "");
+  return scopedList.some((sc) => target.includes(sc) || sc.includes(target));
+}
+
 export function getRoleLabel(role?: string | null): string {
   if (!role) return "—";
   return ROLE_LABELS[role] || role;

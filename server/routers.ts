@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
-import { hasAnyRole, getScopedCollege, ASSIGNABLE_ROLES } from "@shared/roles";
+import { hasAnyRole, getScopedCollege, isCollegeInScope, ASSIGNABLE_ROLES } from "@shared/roles";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
@@ -122,13 +122,7 @@ function ensureCourseInScope(
 ) {
   const scopedCollege = getScopedCollege(user);
   if (!scopedCollege) return;
-  const scopedList = scopedCollege
-    .split(/[、,，]/)
-    .map((c) => c.trim().replace(/（.*?）/g, "").replace(/\(.*?\)/g, ""))
-    .filter(Boolean);
-  const courseCollege = (course.college || "").replace(/（.*?）/g, "").replace(/\(.*?\)/g, "").trim();
-  const inScope = scopedList.some((sc) => courseCollege.includes(sc) || sc.includes(courseCollege));
-  if (!inScope) {
+  if (!isCollegeInScope(scopedCollege, course.college)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "院级督导仅可听课/评价本学院课程" });
   }
 }
@@ -387,13 +381,7 @@ export const appRouter = router({
         if (!course) {
           throw new TRPCError({ code: "FORBIDDEN" });
         }
-        const scopedList = scopedCollege
-          .split(/[、,，]/)
-          .map((c: string) => c.trim().replace(/（.*?）/g, "").replace(/\(.*?\)/g, ""))
-          .filter(Boolean);
-        const courseCollege = (course.college || "").replace(/（.*?）/g, "").replace(/\(.*?\)/g, "").trim();
-        const hasAccess = scopedList.some((sc: string) => courseCollege.includes(sc) || sc.includes(courseCollege));
-        if (!hasAccess) {
+        if (!isCollegeInScope(scopedCollege, course.college)) {
           throw new TRPCError({ code: "FORBIDDEN" });
         }
       }
@@ -501,12 +489,7 @@ export const appRouter = router({
         const course = await getCourseById(evaluation.courseId);
         const scopedCollege = getScopedCollege(user);
         if (scopedCollege && evaluation.supervisorId !== user.id) {
-          const inScope = scopedCollege
-            .split(/[、,，]/)
-            .map((c) => c.trim().replace(/（.*?）/g, "").replace(/\(.*?\)/g, ""))
-            .filter(Boolean)
-            .some((sc) => (course?.college || "").includes(sc) || sc.includes(course?.college || ""));
-          if (!inScope) {
+          if (!isCollegeInScope(scopedCollege, course?.college)) {
             throw new TRPCError({ code: "FORBIDDEN", message: "无权限导出其他学院的评价" });
           }
         }
@@ -534,12 +517,7 @@ export const appRouter = router({
         const course = await getCourseById(evaluation.courseId);
         const scopedCollege = getScopedCollege(user);
         if (scopedCollege && evaluation.supervisorId !== user.id) {
-          const inScope = scopedCollege
-            .split(/[、,，]/)
-            .map((c) => c.trim().replace(/（.*?）/g, "").replace(/\(.*?\)/g, ""))
-            .filter(Boolean)
-            .some((sc) => (course?.college || "").includes(sc) || sc.includes(course?.college || ""));
-          if (!inScope) {
+          if (!isCollegeInScope(scopedCollege, course?.college)) {
             throw new TRPCError({ code: "FORBIDDEN", message: "无权限导出其他学院的评价" });
           }
         }
