@@ -6,7 +6,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
-import { serveStatic, setupVite } from "./vite";
+import { serveStatic } from "./static";
 import { startScheduler } from "../scheduler";
 import uploadCoursesRouter from "../uploadCourses";
 import { sdk } from "./sdk";
@@ -95,7 +95,10 @@ async function startServer() {
     })
   );
   // development mode uses Vite, production mode uses static files
+  // 注意：setupVite 必须用动态 import。vite 及其插件都是 devDependencies，
+  // 生产镜像（pnpm install --prod）不会安装，静态引入会让进程在加载模块阶段就崩溃。
   if (process.env.NODE_ENV === "development") {
+    const { setupVite } = await import("./vite");
     await setupVite(app, server);
   } else {
     serveStatic(app);

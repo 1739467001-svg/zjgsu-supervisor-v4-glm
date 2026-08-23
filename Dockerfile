@@ -38,8 +38,10 @@ COPY drizzle.config.ts ./
 COPY tsconfig.json ./
 COPY shared/ ./shared/
 COPY server/ ./server/
+# 运维脚本：数据库结构体检（db:doctor）与人员名单导入（db:import-users）
+COPY scripts/ ./scripts/
 
-# 安装 tsx 用于运行迁移
+# 安装 tsx 用于运行迁移与运维脚本
 RUN pnpm add -D tsx drizzle-kit
 
 EXPOSE 3000
