@@ -14,6 +14,8 @@
 #   PORT=3000                        应用端口
 #   BRANCH=main                      部署分支
 #   SETUP_NGINX=1                    是否配置 nginx 反向代理（80 → 应用端口）
+#   DATABASE_URL=mysql://...         接管已有数据库（如原服务器的库、或 TiDB Cloud）。
+#                                    传了就不再新建本地库，避免上线后是一个空系统。
 
 set -euo pipefail
 
@@ -106,7 +108,13 @@ ok "pm2 $(pm2 -v 2>/dev/null | tail -1)"
 # 3. 数据库
 # ============================================================
 log "检查数据库"
-if command -v mysqld >/dev/null 2>&1 || command -v mariadbd >/dev/null 2>&1; then
+if [ -n "${DATABASE_URL:-}" ] && [ ! -f "${APP_DIR}/.env" ]; then
+  ok "将使用外部数据库，跳过本地数据库安装"
+  SKIP_LOCAL_DB=1
+fi
+if [ "${SKIP_LOCAL_DB:-0}" = "1" ]; then
+  :
+elif command -v mysqld >/dev/null 2>&1 || command -v mariadbd >/dev/null 2>&1; then
   ok "已安装数据库服务"
 else
   warn "安装 MariaDB"
@@ -116,6 +124,7 @@ else
   esac
 fi
 
+if [ "${SKIP_LOCAL_DB:-0}" != "1" ]; then
 DB_SVC=""
 for s in mariadb mysqld mysql; do
   systemctl list-unit-files 2>/dev/null | grep -q "^${s}.service" && DB_SVC="$s" && break
@@ -124,6 +133,7 @@ done
 systemctl enable --now "$DB_SVC" >/dev/null 2>&1 || true
 systemctl is-active --quiet "$DB_SVC" || die "数据库服务未能启动：systemctl status $DB_SVC"
 ok "数据库服务 $DB_SVC 运行中"
+fi
 
 # ============================================================
 # 4. 部署目录与代码
@@ -158,25 +168,45 @@ if [ -f "$ENV_FILE" ]; then
   # shellcheck disable=SC1090
   DB_PASS="$(sed -n 's#^DATABASE_URL=mysql://[^:]*:\([^@]*\)@.*#\1#p' "$ENV_FILE" | head -1)"
 else
-  DB_PASS="$(openssl rand -hex 16)"
   JWT_SECRET="$(openssl rand -hex 32)"
+  if [ -n "${DATABASE_URL:-}" ]; then
+    # 接管调用方指定的已有数据库，不再新建本地库
+    USE_EXTERNAL_DB=1
+    DB_URL="$DATABASE_URL"
+    ok "使用外部指定的数据库连接（不会新建本地库）"
+  else
+    DB_PASS="$(openssl rand -hex 16)"
+    DB_URL="mysql://${DB_USER}:${DB_PASS}@127.0.0.1:3306/${DB_NAME}"
+  fi
   cat > "$ENV_FILE" <<EOF
 # 本文件由 scripts/deploy.sh 生成，含敏感信息，切勿提交进版本库
 NODE_ENV=production
 PORT=${PORT}
 TZ=Asia/Shanghai
-DATABASE_URL=mysql://${DB_USER}:${DB_PASS}@127.0.0.1:3306/${DB_NAME}
+DATABASE_URL=${DB_URL}
 JWT_SECRET=${JWT_SECRET}
 EOF
   chmod 600 "$ENV_FILE"
-  ok "已生成 .env（数据库密码与 JWT 密钥为随机生成，权限 600）"
+  ok "已生成 .env（权限 600）"
 fi
-[ -n "${DB_PASS:-}" ] || die "无法从 .env 解析数据库密码，请检查 $ENV_FILE"
+
+# 判断最终使用的是本地库还是外部库
+FINAL_DB_URL="$(sed -n 's#^DATABASE_URL=##p' "$ENV_FILE" | head -1)"
+case "$FINAL_DB_URL" in
+  *@127.0.0.1:3306/*|*@localhost:3306/*) USE_EXTERNAL_DB="${USE_EXTERNAL_DB:-0}" ;;
+  *) USE_EXTERNAL_DB=1 ;;
+esac
 
 # ============================================================
 # 6. 建库建用户（幂等）
 # ============================================================
+if [ "${USE_EXTERNAL_DB:-0}" = "1" ]; then
+  log "跳过本地建库（使用外部数据库）"
+  ok "连接目标：$(printf '%s' "$FINAL_DB_URL" | sed 's#://[^:]*:[^@]*@#://***:***@#')"
+else
 log "初始化数据库 $DB_NAME"
+DB_PASS="$(sed -n 's#^DATABASE_URL=mysql://[^:]*:\([^@]*\)@.*#\1#p' "$ENV_FILE" | head -1)"
+[ -n "$DB_PASS" ] || die "无法从 .env 解析数据库密码，请检查 $ENV_FILE"
 if ! mysql -uroot -e "SELECT 1" >/dev/null 2>&1; then
   die "无法以 root 免密连接数据库。若已为 MySQL root 设置密码，请先执行：
        mysql -uroot -p -e \"CREATE DATABASE IF NOT EXISTS \\\`${DB_NAME}\\\` CHARACTER SET utf8mb4;\"
@@ -190,6 +220,7 @@ GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'127.0.0.1';
 FLUSH PRIVILEGES;
 SQL
 ok "数据库与账号就绪"
+fi
 
 # ============================================================
 # 7. 依赖、迁移、构建
