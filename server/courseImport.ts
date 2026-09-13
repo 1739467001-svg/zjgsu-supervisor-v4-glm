@@ -53,7 +53,15 @@ export type ParseOptions = {
   semesterStartDate?: string;
   /** 学期总周数，用于校验换算出来的周次是否越界 */
   totalWeeks?: number;
+  /**
+   * MBA 课表所在校区。MBA 课表本身没有校区列，但 MBA 教育中心的课全在教工路校区
+   * （研究生院确认），不填的话督导按校区筛选就漏掉整个 MBA 学院。
+   */
+  mbaCampus?: string;
 };
+
+/** MBA 课表默认校区（研究生院确认：MBA 全部在教工路校区） */
+export const DEFAULT_MBA_CAMPUS = "教工路";
 
 // ============================================================
 // 周次解析
@@ -289,6 +297,7 @@ function parseMba(rows: any[][], headerRow: number, opts: ParseOptions): ParseRe
   }
 
   const totalWeeks = opts.totalWeeks ?? 0;
+  const campus = opts.mbaCampus ?? DEFAULT_MBA_CAMPUS;
   const outOfRange = new Set<number>();
   const courses: ParsedCourse[] = [];
 
@@ -318,8 +327,8 @@ function parseMba(rows: any[][], headerRow: number, opts: ParseOptions): ParseRe
       classroom: cell(row, idx.classroom),
       classId: splitMbaClassNames(cell(row, idx.classId)),
       teacher: cell(row, idx.teacher),
-      // MBA 课表没有校区列，不臆测，留空由管理端确认
-      campus: "",
+      // MBA 课表没有校区列，按研究生院确认的口径统一填教工路（可用 mbaCampus 覆盖）
+      campus,
       weekday: cell(row, idx.weekday),
       weekType: "",
       // 没有节次，用实际起止时间代替，督导据此找得到课
@@ -334,7 +343,7 @@ function parseMba(rows: any[][], headerRow: number, opts: ParseOptions): ParseRe
 
   warnings.push(`按「班级+课程+教师+星期+时间+教室」归并：${rows.length - headerRow - 1} 条上课记录 → ${courses.length} 门课`);
   warnings.push(`周次按学期起始日 ${start} 换算（第一周的周一）`);
-  warnings.push("MBA 课表没有校区列与学生专业列，导入后这两项为空，如需填写请在课程管理中补充");
+  warnings.push(`MBA 课表没有校区列，已统一填为「${campus}」；也没有学生专业列，该项为空`);
   if (examSessions > 0) warnings.push(`${examSessions} 条考试场次已排除（考试不是授课，不安排听课）`);
   if (noTeacher > 0) warnings.push(`${noTeacher} 条记录没有授课教师`);
   if (badDate > 0) warnings.push(`${badDate} 条记录日期无法解析，已跳过`);

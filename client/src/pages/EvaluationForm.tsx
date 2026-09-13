@@ -11,6 +11,7 @@ import { useLocation, useParams } from "wouter";
 import { ChevronLeft, Save, Send, Star } from "lucide-react";
 import { useSemester } from "@/hooks/useSemester";
 import { calculateWeekFromDate, calculateDateRangeFromWeek, getMinSelectableDate, getMaxSelectableDate, isValidFutureDate, getTodayBJ, formatTimeBJ } from "@shared/dateUtils";
+import { parseStudentMajors, formatStudentMajor } from "@shared/studentMajor";
 
 // 评分按钮组件
 function ScoreGroup({ value, onChange, max = 5 }: { value?: number; onChange: (v: number) => void; max?: number }) {
@@ -463,6 +464,7 @@ export default function EvaluationForm() {
     return !validation.valid;
   };
   const targetCourse = course || (existingEval as any)?.course;
+  const studentMajors = parseStudentMajors(targetCourse?.studentMajor);
 
   if (!isEdit && !isValidCourseId) {
     navigate('/evaluations', { replace: true });
@@ -516,7 +518,7 @@ export default function EvaluationForm() {
               </div>
               
               {/* 课程详细信息网格 */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mt-4 pt-4" style={{ borderTop: "1px solid oklch(0.93 0.006 240)" }}>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4 pt-4" style={{ borderTop: "1px solid oklch(0.93 0.006 240)" }}>
                 {/* 课程性质 */}
                 <div className="space-y-1 min-w-0">
                   <p className="text-xs font-medium" style={{ color: "oklch(0.52 0.025 240)" }}>课程性质</p>
@@ -537,18 +539,6 @@ export default function EvaluationForm() {
                   </p>
                 </div>
 
-                {/* 学生专业 */}
-                <div className="space-y-1 min-w-0">
-                  <p className="text-xs font-medium" style={{ color: "oklch(0.52 0.025 240)" }}>学生专业</p>
-                  <p className="text-xs break-words" style={{ color: "oklch(0.20 0.025 240)" }}>
-                    {targetCourse?.studentMajor ? (
-                      <span className="line-clamp-2">{targetCourse.studentMajor}</span>
-                    ) : (
-                      "—"
-                    )}
-                  </p>
-                </div>
-
                 {/* 所选人数 */}
                 <div className="space-y-1 min-w-0">
                   <p className="text-xs font-medium" style={{ color: "oklch(0.52 0.025 240)" }}>所选人数</p>
@@ -564,6 +554,32 @@ export default function EvaluationForm() {
                     {targetCourse?.classId || "—"}
                   </p>
                 </div>
+              </div>
+
+              {/* 学生专业：一门课可能挂四五个专业、整串近 200 字符，
+                  放在窄格子里手机上必然显示不全，所以单独占满一行并逐条列出 */}
+              <div className="space-y-1.5 mt-4 pt-4" style={{ borderTop: "1px solid oklch(0.93 0.006 240)" }}>
+                <p className="text-xs font-medium" style={{ color: "oklch(0.52 0.025 240)" }}>
+                  学生专业
+                  {studentMajors.length > 1 && (
+                    <span className="ml-1" style={{ color: "oklch(0.65 0.02 240)" }}>（{studentMajors.length} 个）</span>
+                  )}
+                </p>
+                {studentMajors.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {studentMajors.map((m, i) => (
+                      <span
+                        key={i}
+                        className="inline-block px-2 py-1 rounded-md text-xs break-words"
+                        style={{ background: "oklch(0.96 0.006 240)", color: "oklch(0.30 0.025 240)" }}
+                      >
+                        {formatStudentMajor(m)}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs" style={{ color: "oklch(0.65 0.02 240)" }}>—</p>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-1 flex-shrink-0">

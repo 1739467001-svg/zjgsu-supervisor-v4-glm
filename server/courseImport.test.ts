@@ -202,12 +202,19 @@ describe("MBA 课表：把上课场次归并成课程", () => {
     expect(res.warnings.join()).toMatch(/超出 1~18 周范围/);
   });
 
-  it("MBA 课程不臆造校区", () => {
+  it("MBA 课表没有校区列，按研究生院确认的口径统一填教工路", () => {
     const res = parseCourseWorkbook(workbook(rows), {
       semesterStartDate: SEMESTER_START, totalWeeks: TOTAL_WEEKS,
     });
-    expect(res.courses[0].campus).toBe("");
-    expect(res.warnings.join()).toMatch(/没有校区列/);
+    expect(res.courses[0].campus).toBe("教工路");
+    expect(res.warnings.join()).toMatch(/统一填为「教工路」/);
+  });
+
+  it("校区可以覆盖（将来 MBA 换校区时不必改代码）", () => {
+    const res = parseCourseWorkbook(workbook(rows), {
+      semesterStartDate: SEMESTER_START, totalWeeks: TOTAL_WEEKS, mbaCampus: "下沙",
+    });
+    expect(res.courses[0].campus).toBe("下沙");
   });
 });
 
