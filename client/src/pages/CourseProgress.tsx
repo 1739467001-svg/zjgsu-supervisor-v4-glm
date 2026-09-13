@@ -9,6 +9,7 @@ import { useLocation } from "wouter";
 import { Search, CheckCircle2, Clock, ChevronLeft, Star, BookOpen, Eye } from "lucide-react";
 import { formatDateOnlyBJ } from "@shared/dateUtils";
 import { hasAnyRole } from "@shared/roles";
+import { formatEvaluatedWeeks } from "@shared/weeks";
 
 type ProgressTab = "all" | "evaluated" | "unevaluated";
 
@@ -175,7 +176,10 @@ export default function CourseProgress() {
           </div>
         ) : (
           <div className="space-y-3">
-            {filtered.map((course: any) => (
+            {filtered.map((course: any) => {
+              // 「第几周」= 该课程被听课评价的周次（去重升序），规则见 shared/weeks.ts
+              const weekLabel = formatEvaluatedWeeks(course.evaluations);
+              return (
               <div
                 key={course.id}
                 className="bg-white rounded-xl p-4 transition-all duration-200 hover:shadow-md"
@@ -205,6 +209,9 @@ export default function CourseProgress() {
                       {course.college && <span>{course.college}</span>}
                       {course.campus && <span>{course.campus}</span>}
                       {course.weekday && <span>{course.weekday} {course.period}</span>}
+                      {course.isEvaluated && (
+                        <span style={{ color: "oklch(0.35 0.13 245)" }}>{weekLabel}</span>
+                      )}
                     </div>
 
                     {/* 已评价：显示评价摘要 */}
@@ -220,7 +227,7 @@ export default function CourseProgress() {
                             <div className="flex items-center gap-2 text-xs" style={{ color: "oklch(0.40 0.025 240)" }}>
                               <Eye className="w-3 h-3" style={{ color: "oklch(0.35 0.13 245)" }} />
                               <span>督导：{ev.supervisor?.name || "未知"}</span>
-                              {ev.actualWeek && (
+                              {ev.actualWeek && course.evaluations.length > 1 && (
                                 <span className="px-1.5 py-0.5 rounded-full" style={{ background: "oklch(0.93 0.018 240)", color: "oklch(0.35 0.13 245)" }}>
                                   第{ev.actualWeek}周
                                 </span>
@@ -243,7 +250,8 @@ export default function CourseProgress() {
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

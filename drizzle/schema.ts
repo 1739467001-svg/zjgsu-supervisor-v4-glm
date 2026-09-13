@@ -26,8 +26,13 @@ export const users = mysqlTable("users", {
   role: mysqlEnum("role", ["supervisor_expert", "supervisor_leader", "college_secretary", "graduate_admin", "user", "admin"]).default("user").notNull(),
   // 附加角色（多角色切换用，如同时具有"研究生院主管"和"督导专家"身份）
   extraRoles: json("extraRoles").$type<string[]>(),
-  // 所属学院（学院教学秘书用；督导专家/组长设置此项即为"院级督导"仅本学院范围，不设置则为"校级督导"全校范围）
+  // 所属学院。对学院教学秘书是其管辖学院；对督导则是人事归属学院，
+  // 仅在 supervisorScope 为 college 时才同时作为督导范围使用。
   college: varchar("college", { length: 128 }),
+  // 督导范围：school=校级督导（可查看评价全校课程），college=院级督导（仅本学院）。
+  // 必须是独立字段：早先按"college 非空即院级"推断，导致所有填了人事归属学院的
+  // 校级督导被误判为院级，进而看不到其他学院的课程。
+  supervisorScope: mysqlEnum("supervisorScope", ["school", "college"]).default("school").notNull(),
   // 备注（如“负责留学生”）
   remark: varchar("remark", { length: 256 }),
   // 登录密码（默认为工号）

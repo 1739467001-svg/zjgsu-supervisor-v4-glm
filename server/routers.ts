@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
-import { hasAnyRole, getScopedCollege, isCollegeInScope, ASSIGNABLE_ROLES } from "@shared/roles";
+import { hasAnyRole, getScopedCollege, isCollegeInScope, ASSIGNABLE_ROLES, type RoleAwareUser } from "@shared/roles";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
@@ -39,6 +39,7 @@ import {
   updateEvaluation,
   updateListeningPlanStatus,
   updateUserCollege,
+  updateUserSupervisorScope,
   updateUserExtraRoles,
   updateUserPassword,
   updateUserRole,
@@ -121,10 +122,7 @@ async function ensureCourseExists(courseId: number) {
 }
 
 // 校验课程是否在用户的督导范围内（院级督导仅限本学院；校级督导/其他角色不限）
-function ensureCourseInScope(
-  user: { role?: string | null; extraRoles?: string[] | null; college?: string | null },
-  course: { college: string | null }
-) {
+function ensureCourseInScope(user: RoleAwareUser, course: { college: string | null }) {
   const scopedCollege = getScopedCollege(user);
   if (!scopedCollege) return;
   if (!isCollegeInScope(scopedCollege, course.college)) {
@@ -682,11 +680,19 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    // 更新所属学院（学院教学秘书的管辖范围 / 督导专家、组长的院级督导范围；留空即为校级督导）
+    // 更新所属学院（学院教学秘书的管辖学院；对督导是人事归属学院）
     updateCollege: adminProcedure
       .input(z.object({ userId: z.number(), college: z.string().nullable() }))
       .mutation(async ({ input }) => {
         await updateUserCollege(input.userId, input.college);
+        return { success: true };
+      }),
+
+    // 更新督导范围（校级=全校课程，院级=仅本学院）
+    updateSupervisorScope: adminProcedure
+      .input(z.object({ userId: z.number(), scope: z.enum(["school", "college"]) }))
+      .mutation(async ({ input }) => {
+        await updateUserSupervisorScope(input.userId, input.scope);
         return { success: true };
       }),
 

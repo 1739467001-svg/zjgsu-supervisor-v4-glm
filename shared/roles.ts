@@ -6,8 +6,9 @@
  * 支持"多角色"：用户除主角色（role）外，还可拥有若干附加角色（extraRoles），
  * 二者的并集即为该用户的"有效角色集合"，用于权限判断。
  *
- * 督导范围（校级/院级）：督导专家/督导组长若设置了 college 字段，则仅能查看、
- * 听课、评价本学院课程（院级督导）；未设置则可查看全校课程（校级督导）。
+ * 督导范围（校级/院级）由独立字段 supervisorScope 决定，不再从 college 是否有值推断。
+ * college 对督导而言是人事归属学院，几乎人人都有；早先按"有 college 即院级"推断，
+ * 导致全部校级督导被误判为院级、看不到本学院以外的课程。
  */
 
 export const ROLE_LABELS: Record<string, string> = {
@@ -30,19 +31,52 @@ export const ASSIGNABLE_ROLES = [
 
 export const SUPERVISOR_ROLES = ["supervisor_expert", "supervisor_leader"] as const;
 
+/** 督导范围：校级可查看评价全校课程，院级仅限本学院 */
+export type SupervisorScope = "school" | "college";
+
 export type RoleAwareUser = {
   role?: string | null;
-  extraRoles?: string[] | null;
+  /**
+   * 附加角色。数据库里是 JSON 列，但不同引擎回传的类型不一样：
+   * MySQL 8 / TiDB 回传已解析的数组，而 MariaDB 的 JSON 实际是 LONGTEXT，
+   * 驱动只会回传原始字符串。所以这里两种都要接受。
+   */
+  extraRoles?: string[] | string | null;
   college?: string | null;
+  supervisorScope?: SupervisorScope | string | null;
 };
+
+/**
+ * 把 extraRoles 规整成字符串数组。
+ *
+ * 关键在于绝不能直接遍历字符串 —— 那会按字符拆开，
+ * 把 '["graduate_admin"]' 变成 '[' '"' 'g' … 这一串假角色，
+ * 结果是附加角色既判不出权限、又在切换菜单里显示成一堆单字。
+ */
+export function normalizeExtraRoles(value: RoleAwareUser["extraRoles"]): string[] {
+  if (!value) return [];
+  const list = Array.isArray(value) ? value : parseRoleArray(value);
+  return list.filter((r): r is string => typeof r === "string" && r.length > 0);
+}
+
+function parseRoleArray(text: string): unknown[] {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+  try {
+    const parsed = JSON.parse(trimmed);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
 /** 用户的有效角色集合（主角色 + 附加角色，去重） */
 export function getEffectiveRoles(user?: RoleAwareUser | null): string[] {
   if (!user) return [];
   const roles = new Set<string>();
   if (user.role) roles.add(user.role);
-  for (const r of user.extraRoles || []) {
-    if (r) roles.add(r);
+  for (const r of normalizeExtraRoles(user.extraRoles)) {
+    roles.add(r);
   }
   return Array.from(roles);
 }
@@ -57,9 +91,17 @@ export function isSupervisorRole(role: string): boolean {
   return (SUPERVISOR_ROLES as readonly string[]).includes(role);
 }
 
-/** 该用户是否为"院级督导"（督导角色 + 设置了所属学院） */
+/**
+ * 该用户是否为"院级督导"。
+ *
+ * 三个条件缺一不可：具备督导角色、范围显式标记为 college、且确实填了学院。
+ * 未显式标记的一律按校级处理 —— 这是刻意的安全默认：宁可范围偏大也不要
+ * 让督导突然看不到本该负责的课程（此前按 college 推断就造成了这种事故）。
+ */
 export function isCollegeScopedSupervisor(user?: RoleAwareUser | null): boolean {
-  if (!user || !user.college) return false;
+  if (!user) return false;
+  if (user.supervisorScope !== "college") return false;
+  if (!user.college) return false;
   return hasAnyRole(user, SUPERVISOR_ROLES);
 }
 
@@ -83,12 +125,18 @@ export function getRoleLabel(role?: string | null): string {
   return ROLE_LABELS[role] || role;
 }
 
+/** 该用户作为督导的范围；非督导角色返回 undefined */
+export function getSupervisorScopeLabel(user?: RoleAwareUser | null): "校级" | "院级" | undefined {
+  if (!hasAnyRole(user, SUPERVISOR_ROLES)) return undefined;
+  return isCollegeScopedSupervisor(user) ? "院级" : "校级";
+}
+
 /** 督导角色标签，含校级/院级范围后缀，用于列表展示与报表导出 */
 export function getSupervisorRoleLabel(user?: RoleAwareUser | null): string {
   if (!user || !user.role) return "—";
   const label = getRoleLabel(user.role);
   if (isSupervisorRole(user.role)) {
-    return `${label}（${user.college ? "院级" : "校级"}）`;
+    return `${label}（${isCollegeScopedSupervisor(user) ? "院级" : "校级"}）`;
   }
   return label;
 }

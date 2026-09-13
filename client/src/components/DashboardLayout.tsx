@@ -1,6 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useActiveRole } from "@/hooks/useActiveRole";
-import { ROLE_LABELS, getSupervisorRoleLabel } from "@shared/roles";
+import { ROLE_LABELS, getSupervisorScopeLabel, isSupervisorRole } from "@shared/roles";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -157,6 +157,13 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   const role = activeRole;
   const menuItems = getMenuItems(role);
 
+  // 督导角色才带校级/院级后缀；其余角色直接用角色名，避免把同一身份写两遍
+  const scopeLabel = getSupervisorScopeLabel(user as any);
+  const roleDisplay = (r: string) => {
+    const label = ROLE_LABELS[r] || r;
+    return isSupervisorRole(r) && scopeLabel ? `${label}（${scopeLabel}）` : label;
+  };
+
   const { data: unreadCount = 0 } = trpc.notifications.unreadCount.useQuery(undefined, {
     refetchInterval: 30000,
   });
@@ -257,21 +264,17 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-semibold truncate leading-none" style={{ color: "oklch(0.90 0.02 245)" }}>{user?.name || "-"}</p>
                       <p className="text-xs truncate mt-1" style={{ color: "oklch(0.55 0.03 245)" }}>
-                        {ROLE_LABELS[role] || role}
+                        {roleDisplay(role)}
+                        {canSwitch && <span className="ml-1">· 可切换</span>}
                       </p>
                     </div>
                   )}
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
-                <div className="px-3 py-2">
-                  <p className="text-sm font-medium">{user?.name}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{getSupervisorRoleLabel(user as any) !== "—" ? getSupervisorRoleLabel(user as any) : ROLE_LABELS[role]}</p>
-                  {(user as any)?.college && <p className="text-xs text-muted-foreground truncate">{(user as any).college}</p>}
-                </div>
+              {/* 姓名与当前身份已显示在左下角的触发按钮上，菜单里不再重复一遍 */}
+              <DropdownMenuContent side="top" align="start" className="w-56">
                 {canSwitch && (
                   <>
-                    <DropdownMenuSeparator />
                     <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground">切换身份</div>
                     {effectiveRoles.map((r) => (
                       <DropdownMenuItem
@@ -279,13 +282,13 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
                         onClick={() => setActiveRole(r)}
                         className="cursor-pointer justify-between"
                       >
-                        <span>{ROLE_LABELS[r] || r}</span>
+                        <span>{roleDisplay(r)}</span>
                         {activeRole === r && <span className="text-xs" style={{ color: "oklch(0.35 0.13 245)" }}>当前</span>}
                       </DropdownMenuItem>
                     ))}
+                    <DropdownMenuSeparator />
                   </>
                 )}
-                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => setLocation("/notifications")} className="cursor-pointer">
                   <Bell className="mr-2 h-4 w-4" />
                   <span>通知消息</span>

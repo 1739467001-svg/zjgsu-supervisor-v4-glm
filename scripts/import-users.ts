@@ -15,6 +15,8 @@
  *   3. 名单外的已有用户不做任何处理，仅列出供人工核对
  *   4. 学院名以数据库 courses 表的「开课院系」为准做校验，校验规则直接复用
  *      shared/roles.ts 的 isCollegeInScope，与运行时权限判定完全一致
+ *   5. 督导范围写入独立字段 supervisorScope（school/college），不靠 college 是否有值推断 ——
+ *      校级督导同样保留人事归属学院，不会因此被误判为院级
  */
 
 import XLSX from "xlsx";
@@ -30,7 +32,7 @@ dotenv.config();
 type RoleSpec = {
   role: string;
   extras: string[];
-  /** 是否按学院限定范围（院级）。false 表示全校范围，college 置空 */
+  /** 是否按学院限定范围（院级）。false 表示全校范围，college 仅作人事归属记录 */
   scoped: boolean;
 };
 
@@ -83,6 +85,10 @@ type Person = {
   role: string;
   extraRoles: string[];
   college: string | null;
+  /** 督导范围，写入 users.supervisorScope */
+  supervisorScope: "school" | "college";
+  /** 该人员的可见范围是否真的被 college 限制（院级督导 / 学院教学秘书） */
+  scopeLimited: boolean;
   remark: string | null;
   sourceRoles: string[];
   homeColleges: string[];
@@ -157,13 +163,18 @@ function parseWorkbook(path: string) {
       extras = sorted.slice(1);
     }
 
-    // 校级角色（研究生院主管 / 校级督导专家）不设 college，避免被判定为院级而缩小范围；
-    // 其人事归属学院记入备注，信息不丢失
-    const college = scopedColleges.size > 0 ? [...scopedColleges].join("、") : null;
+    // 范围由 supervisorScope 显式决定，college 只表达「哪个学院」：
+    // 院级角色填管辖学院，校级角色填人事归属学院 —— 后者不再影响可见范围，
+    // 因此不必再像以前那样为了避免被误判成院级而把归属学院塞进备注。
+    const scopeLimited = scopedColleges.size > 0;
+    const college = scopeLimited
+      ? [...scopedColleges].join("、")
+      : homeColleges.size > 0
+        ? [...homeColleges].join("、")
+        : null;
     const remarkParts = [
       ...new Set(group.map((r) => r.remark).filter(Boolean) as string[]),
     ];
-    if (!college && homeColleges.size > 0) remarkParts.push(`归属：${[...homeColleges].join("、")}`);
 
     people.push({
       employeeId,
@@ -173,6 +184,8 @@ function parseWorkbook(path: string) {
       role: primary,
       extraRoles: extras,
       college,
+      supervisorScope: scopeLimited ? "college" : "school",
+      scopeLimited,
       remark: remarkParts.length ? remarkParts.join("；") : null,
       sourceRoles: [...new Set(group.map((r) => r.roleStr))],
       homeColleges: [...homeColleges],
@@ -217,7 +230,8 @@ async function main() {
     const unmatched: Person[] = [];
     if (courseColleges.length > 0) {
       for (const p of people) {
-        if (!p.college) continue;
+        // 校级人员的 college 只是人事归属、并不限制可见范围，对不上课表也无妨
+        if (!p.scopeLimited || !p.college) continue;
         const hit = courseColleges.some((cc) => isCollegeInScope(p.college!, cc));
         if (!hit) unmatched.push(p);
       }
@@ -255,7 +269,7 @@ async function main() {
     console.log(`\n── 角色分配明细 ──`);
     const byRole = new Map<string, Person[]>();
     for (const p of people) {
-      const key = `${ROLE_LABEL[p.role] ?? p.role}${p.extraRoles.length ? " + " + p.extraRoles.map((r) => ROLE_LABEL[r] ?? r).join("/") : ""}${p.college ? "（院级）" : "（全校）"}`;
+      const key = `${ROLE_LABEL[p.role] ?? p.role}${p.extraRoles.length ? " + " + p.extraRoles.map((r) => ROLE_LABEL[r] ?? r).join("/") : ""}${p.scopeLimited ? "（院级）" : "（全校）"}`;
       if (!byRole.has(key)) byRole.set(key, []);
       byRole.get(key)!.push(p);
     }
@@ -282,16 +296,17 @@ async function main() {
     for (const p of people) {
       const openId = `emp_${p.employeeId}`;
       await conn.execute(
-        `INSERT INTO users (openId, employeeId, name, email, phone, role, extraRoles, college, remark, loginMethod, lastSignedIn)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'employee_id', NOW())
+        `INSERT INTO users (openId, employeeId, name, email, phone, role, extraRoles, college, supervisorScope, remark, loginMethod, lastSignedIn)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'employee_id', NOW())
          ON DUPLICATE KEY UPDATE
            name = VALUES(name), email = VALUES(email), phone = VALUES(phone),
            role = VALUES(role), extraRoles = VALUES(extraRoles),
-           college = VALUES(college), remark = VALUES(remark)`,
+           college = VALUES(college), supervisorScope = VALUES(supervisorScope),
+           remark = VALUES(remark)`,
         [
           openId, p.employeeId, p.name, p.email, p.phone, p.role,
           p.extraRoles.length ? JSON.stringify(p.extraRoles) : null,
-          p.college, p.remark,
+          p.college, p.supervisorScope, p.remark,
         ]
       );
       existing.has(p.employeeId) ? updated++ : created++;

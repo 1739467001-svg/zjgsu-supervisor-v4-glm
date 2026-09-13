@@ -48,6 +48,7 @@ vi.mock("./db", () => ({
   getUsersByRole: vi.fn().mockResolvedValue([]),
   updateUserRole: vi.fn(),
   updateUserExtraRoles: vi.fn(),
+  updateUserSupervisorScope: vi.fn().mockResolvedValue(undefined),
   updateUserCollege: vi.fn(),
   updateUserPassword: vi.fn(),
   getUserByEmployeeId: vi.fn(),

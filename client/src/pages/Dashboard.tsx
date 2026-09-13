@@ -1,6 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useActiveRole } from "@/hooks/useActiveRole";
-import { hasAnyRole } from "@shared/roles";
+import { hasAnyRole, getSupervisorScopeLabel, isSupervisorRole } from "@shared/roles";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { BookOpen, ClipboardList, CheckCircle, Bell, TrendingUp, Users, Building2, Calendar } from "lucide-react";
@@ -32,6 +32,7 @@ export default function Dashboard() {
   const canSupervise = hasAnyRole(user, ["supervisor_expert", "supervisor_leader", "graduate_admin", "admin"]);
   const canViewAdminStats = hasAnyRole(user, ["graduate_admin", "admin"]);
   const isSecretary = hasAnyRole(user, ["college_secretary"]);
+  const scopeLabel = getSupervisorScopeLabel(user);
 
   const { data: notifications } = trpc.notifications.list.useQuery();
   const unreadCount = notifications?.filter((n) => !n.isRead).length || 0;
@@ -81,10 +82,12 @@ export default function Dashboard() {
             <div className="flex items-center gap-2 mt-2">
               <span className="px-2.5 py-0.5 rounded-full text-xs font-medium" style={{ background: "oklch(1 0 0 / 0.2)", backdropFilter: "blur(4px)" }}>
                 {ROLE_LABELS[role] || role}
+                {/* 督导必须看得出自己是校级还是院级：只标一个学院名会让校级督导误以为被限制在本学院 */}
+                {isSupervisorRole(role) && scopeLabel ? `（${scopeLabel}）` : ""}
               </span>
               {user?.college && (
                 <span className="px-2.5 py-0.5 rounded-full text-xs font-medium" style={{ background: "oklch(1 0 0 / 0.15)", backdropFilter: "blur(4px)" }}>
-                  {user.college}
+                  {isSupervisorRole(role) && scopeLabel === "校级" ? `归属：${user.college}` : user.college}
                 </span>
               )}
             </div>

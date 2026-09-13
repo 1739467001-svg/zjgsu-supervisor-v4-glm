@@ -146,6 +146,13 @@ export async function updateUserCollege(userId: number, college: string | null) 
   await db.update(users).set({ college }).where(eq(users.id, userId));
 }
 
+/** 设置督导范围：school=校级（全校课程），college=院级（仅本学院） */
+export async function updateUserSupervisorScope(userId: number, scope: "school" | "college") {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ supervisorScope: scope }).where(eq(users.id, userId));
+}
+
 /**
  * 直接更新用户密码，不经过upsertUser，确保密码可靠写入数据库
  */

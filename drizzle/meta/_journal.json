@@ -50,6 +50,13 @@
       "when": 1787497651036,
       "tag": "0006_careless_romulus",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1789272635645,
+      "tag": "0007_tiresome_the_executioner",
+      "breakpoints": true
     }
   ]
 }

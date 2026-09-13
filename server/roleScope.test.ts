@@ -41,6 +41,7 @@ vi.mock("./db", () => ({
   getUsersByRole: vi.fn().mockResolvedValue([]),
   updateUserRole: vi.fn().mockResolvedValue(undefined),
   updateUserExtraRoles: vi.fn().mockResolvedValue(undefined),
+  updateUserSupervisorScope: vi.fn().mockResolvedValue(undefined),
   updateUserCollege: vi.fn().mockResolvedValue(undefined),
   updateUserPassword: vi.fn().mockResolvedValue(undefined),
   getUserByEmployeeId: vi.fn().mockResolvedValue(null),
@@ -64,6 +65,7 @@ function ctxFor(user: Partial<any>): TrpcContext {
       role: "supervisor_expert",
       extraRoles: null,
       college: null,
+      supervisorScope: "school",
       remark: null,
       password: null,
       createdAt: new Date(),
@@ -88,7 +90,7 @@ beforeEach(() => {
 // ============================================================
 describe("督导范围（校级/院级）", () => {
   it("院级督导浏览课程时，学院筛选被强制限定为本学院", async () => {
-    const caller = appRouter.createCaller(ctxFor({ role: "supervisor_expert", college: HUMANITIES }));
+    const caller = appRouter.createCaller(ctxFor({ role: "supervisor_expert", college: HUMANITIES, supervisorScope: "college" }));
     await caller.courses.list({ college: STATS, page: 1, pageSize: 20 });
     // 即使前端传了别的学院，也必须被覆盖为本学院
     expect(db.getCourses).toHaveBeenCalledWith(expect.objectContaining({ college: HUMANITIES }));
@@ -102,14 +104,14 @@ describe("督导范围（校级/院级）", () => {
 
   it("院级督导不能对外院课程建立听课计划", async () => {
     vi.mocked(db.getCourseById).mockResolvedValue({ id: 5, college: STATS } as any);
-    const caller = appRouter.createCaller(ctxFor({ role: "supervisor_expert", college: HUMANITIES }));
+    const caller = appRouter.createCaller(ctxFor({ role: "supervisor_expert", college: HUMANITIES, supervisorScope: "college" }));
     await expect(caller.plans.create({ courseId: 5 })).rejects.toThrow(/本学院/);
     expect(db.createListeningPlan).not.toHaveBeenCalled();
   });
 
   it("院级督导可以对本学院课程建立听课计划", async () => {
     vi.mocked(db.getCourseById).mockResolvedValue({ id: 6, college: HUMANITIES } as any);
-    const caller = appRouter.createCaller(ctxFor({ role: "supervisor_expert", college: HUMANITIES }));
+    const caller = appRouter.createCaller(ctxFor({ role: "supervisor_expert", college: HUMANITIES, supervisorScope: "college" }));
     await caller.plans.create({ courseId: 6, planWeek: 7 });
     expect(db.createListeningPlan).toHaveBeenCalled();
   });
@@ -123,7 +125,7 @@ describe("督导范围（校级/院级）", () => {
 
   it("院级督导不能对外院课程提交评价", async () => {
     vi.mocked(db.getCourseById).mockResolvedValue({ id: 8, college: STATS } as any);
-    const caller = appRouter.createCaller(ctxFor({ role: "supervisor_expert", college: HUMANITIES }));
+    const caller = appRouter.createCaller(ctxFor({ role: "supervisor_expert", college: HUMANITIES, supervisorScope: "college" }));
     await expect(
       caller.evaluations.create({ courseId: 8, status: "submitted" })
     ).rejects.toThrow(/本学院/);
@@ -193,7 +195,7 @@ describe("评价记录可见范围", () => {
   it("院级督导专家不会因为设置了学院就获得查看他人评价的权限", async () => {
     // 学院范围只约束「能听哪些课」，不等于「能看别人的评价」
     const caller = appRouter.createCaller(
-      ctxFor({ id: 43, role: "supervisor_expert", college: HUMANITIES })
+      ctxFor({ id: 43, role: "supervisor_expert", college: HUMANITIES, supervisorScope: "college" })
     );
     await caller.evaluations.allEvaluations({});
     expect(db.getEvaluationsBySupervisor).toHaveBeenCalledWith(43);
@@ -260,5 +262,86 @@ describe("提交评价后自动完结听课计划", () => {
     await caller.evaluations.update({ id: 100, data: { courseId: 9, actualWeek: 7, status: "submitted" } });
 
     expect(db.updateEvaluation).toHaveBeenCalledWith(100, expect.objectContaining({ status: "submitted" }));
+  });
+});
+
+// ============================================================
+// 回归：校级督导不得因人事归属学院被降级为院级
+// ============================================================
+describe("校级督导的全校范围（回归用例）", () => {
+  it("填了人事归属学院的校级督导，浏览课程时不被限定学院", async () => {
+    const caller = appRouter.createCaller(
+      ctxFor({ role: "supervisor_expert", college: HUMANITIES, supervisorScope: "school" })
+    );
+    await caller.courses.list({ college: STATS, page: 1, pageSize: 20 });
+    expect(db.getCourses).toHaveBeenCalledWith(expect.objectContaining({ college: STATS }));
+  });
+
+  it("填了人事归属学院的校级督导，可对其他学院课程建立听课计划", async () => {
+    vi.mocked(db.getCourseById).mockResolvedValue({ id: 11, college: STATS } as any);
+    const caller = appRouter.createCaller(
+      ctxFor({ role: "supervisor_expert", college: HUMANITIES, supervisorScope: "school" })
+    );
+    await caller.plans.create({ courseId: 11, planWeek: 5 });
+    expect(db.createListeningPlan).toHaveBeenCalled();
+  });
+
+  it("填了人事归属学院的校级督导，可对其他学院课程提交评价", async () => {
+    vi.mocked(db.getCourseById).mockResolvedValue({ id: 12, college: STATS } as any);
+    const caller = appRouter.createCaller(
+      ctxFor({ role: "supervisor_expert", college: HUMANITIES, supervisorScope: "school" })
+    );
+    await caller.evaluations.create({ courseId: 12, status: "submitted" });
+    expect(db.createEvaluation).toHaveBeenCalled();
+  });
+
+  it("老数据未标记范围时按校级处理，不被限定学院", async () => {
+    vi.mocked(db.getCourseById).mockResolvedValue({ id: 13, college: STATS } as any);
+    const caller = appRouter.createCaller(
+      ctxFor({ role: "supervisor_expert", college: HUMANITIES, supervisorScope: null })
+    );
+    await caller.plans.create({ courseId: 13 });
+    expect(db.createListeningPlan).toHaveBeenCalled();
+  });
+});
+
+// ============================================================
+// 回归：附加角色以 JSON 字符串回传时（MariaDB 的 JSON 列实为 LONGTEXT）
+// 仍须正确生效，否则多角色用户的权限会整体失效
+// ============================================================
+describe("附加角色为 JSON 字符串时的权限（回归用例）", () => {
+  it("附加了研究生院主管的院级督导，可浏览其他学院课程", async () => {
+    const caller = appRouter.createCaller(
+      ctxFor({
+        role: "supervisor_expert",
+        college: HUMANITIES,
+        supervisorScope: "college",
+        extraRoles: '["graduate_admin"]' as any,
+      })
+    );
+    await caller.courses.list({ college: STATS, page: 1, pageSize: 20 });
+    expect(db.getCourses).toHaveBeenCalledWith(expect.objectContaining({ college: STATS }));
+  });
+
+  it("附加了研究生院主管的院级督导，可评价其他学院课程", async () => {
+    vi.mocked(db.getCourseById).mockResolvedValue({ id: 21, college: STATS } as any);
+    const caller = appRouter.createCaller(
+      ctxFor({
+        role: "supervisor_expert",
+        college: HUMANITIES,
+        supervisorScope: "college",
+        extraRoles: '["graduate_admin"]' as any,
+      })
+    );
+    await caller.evaluations.create({ courseId: 21, status: "submitted" });
+    expect(db.createEvaluation).toHaveBeenCalled();
+  });
+
+  it("没有附加角色的院级督导仍被限制在本学院", async () => {
+    vi.mocked(db.getCourseById).mockResolvedValue({ id: 22, college: STATS } as any);
+    const caller = appRouter.createCaller(
+      ctxFor({ role: "supervisor_expert", college: HUMANITIES, supervisorScope: "college", extraRoles: "[]" as any })
+    );
+    await expect(caller.evaluations.create({ courseId: 22, status: "submitted" })).rejects.toThrow(/本学院/);
   });
 });

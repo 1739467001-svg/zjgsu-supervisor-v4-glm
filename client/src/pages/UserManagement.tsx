@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Search, Users, Shield, GraduationCap, Building2, User, Settings2 } from "lucide-react";
-import { ASSIGNABLE_ROLES } from "@shared/roles";
+import { ASSIGNABLE_ROLES, getSupervisorScopeLabel, normalizeExtraRoles, type SupervisorScope } from "@shared/roles";
 
 const ROLE_CONFIG: Record<string, { label: string; icon: React.ReactNode; color: string; bg: string }> = {
   supervisor_expert: { label: "督导专家", icon: <GraduationCap className="w-3.5 h-3.5" />, color: "oklch(0.35 0.13 245)", bg: "oklch(0.93 0.018 240)" },
@@ -33,10 +33,18 @@ const SUPERVISOR_ROLES = ["supervisor_expert", "supervisor_leader"];
 export default function UserManagement() {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
-  const [editDialog, setEditDialog] = useState<{ open: boolean; userId?: number; name?: string; extraRoles: string[]; college: string }>({
+  const [editDialog, setEditDialog] = useState<{
+    open: boolean;
+    userId?: number;
+    name?: string;
+    extraRoles: string[];
+    college: string;
+    supervisorScope: SupervisorScope;
+  }>({
     open: false,
     extraRoles: [],
     college: "",
+    supervisorScope: "school",
   });
   const utils = trpc.useUtils();
 
@@ -58,8 +66,19 @@ export default function UserManagement() {
     onError: (err) => toast.error(err.message),
   });
 
+  const updateScopeMutation = trpc.users.updateSupervisorScope.useMutation({
+    onError: (err) => toast.error(err.message),
+  });
+
   const openEditDialog = (u: NonNullable<typeof users>[number]) => {
-    setEditDialog({ open: true, userId: u.id, name: u.name || "", extraRoles: (u as any).extraRoles || [], college: u.college || "" });
+    setEditDialog({
+      open: true,
+      userId: u.id,
+      name: u.name || "",
+      extraRoles: normalizeExtraRoles((u as any).extraRoles),
+      college: u.college || "",
+      supervisorScope: (u as any).supervisorScope === "college" ? "college" : "school",
+    });
   };
 
   const toggleExtraRole = (role: string, checked: boolean) => {
@@ -72,13 +91,21 @@ export default function UserManagement() {
   const handleSaveEdit = async () => {
     if (!editDialog.userId) return;
     try {
+      const college = editDialog.college.trim() || null;
+      // 院级范围必须有学院才成立，否则该督导会既受限又无范围可依 —— 直接降级为校级
+      const scope: SupervisorScope = editDialog.supervisorScope === "college" && college ? "college" : "school";
       await Promise.all([
         updateExtraRolesMutation.mutateAsync({ userId: editDialog.userId, extraRoles: editDialog.extraRoles as any }),
-        updateCollegeMutation.mutateAsync({ userId: editDialog.userId, college: editDialog.college.trim() || null }),
+        updateCollegeMutation.mutateAsync({ userId: editDialog.userId, college }),
+        updateScopeMutation.mutateAsync({ userId: editDialog.userId, scope }),
       ]);
-      toast.success("已保存");
+      if (scope !== editDialog.supervisorScope) {
+        toast.success("已保存（未填学院，督导范围按校级处理）");
+      } else {
+        toast.success("已保存");
+      }
       utils.users.list.invalidate();
-      setEditDialog({ open: false, extraRoles: [], college: "" });
+      setEditDialog({ open: false, extraRoles: [], college: "", supervisorScope: "school" });
     } catch (err: any) {
       toast.error(err.message || "保存失败");
     }
@@ -159,19 +186,24 @@ export default function UserManagement() {
                   {filtered.map((user) => {
                     const roleConf = ROLE_CONFIG[user.role || "user"] || ROLE_CONFIG.user;
                     const isSupervisor = SUPERVISOR_ROLES.includes(user.role || "");
-                    const extraRoles: string[] = (user as any).extraRoles || [];
+                    const extraRoles = normalizeExtraRoles((user as any).extraRoles);
+                    // 范围来自 supervisorScope 字段本身，不再由"有没有填学院"推断
+                    const scopeLabel = getSupervisorScopeLabel(user as any);
                     return (
                       <tr key={user.id} className="hover:bg-muted/30 transition-colors" style={{ borderBottom: "1px solid oklch(0.93 0.006 240)" }}>
                         <td className="px-4 py-3 font-medium" style={{ color: "oklch(0.20 0.025 240)" }}>{user.name}</td>
                         <td className="px-4 py-3 text-xs font-mono" style={{ color: "oklch(0.52 0.025 240)" }}>{user.employeeId}</td>
                         <td className="px-4 py-3 text-xs max-w-[160px]" style={{ color: "oklch(0.52 0.025 240)" }}>
                           <span className="truncate block">{user.college || (isSupervisor ? "（未设置）" : "-")}</span>
-                          {isSupervisor && (
+                          {scopeLabel && (
                             <span
                               className="inline-block mt-0.5 px-1.5 py-0.5 rounded-full text-xs"
-                              style={{ background: user.college ? "oklch(0.93 0.018 160)" : "oklch(0.93 0.018 240)", color: user.college ? "oklch(0.42 0.14 160)" : "oklch(0.35 0.13 245)" }}
+                              style={{
+                                background: scopeLabel === "院级" ? "oklch(0.93 0.018 160)" : "oklch(0.93 0.018 240)",
+                                color: scopeLabel === "院级" ? "oklch(0.42 0.14 160)" : "oklch(0.35 0.13 245)",
+                              }}
                             >
-                              {user.college ? "院级督导" : "校级督导"}
+                              {scopeLabel}督导
                             </span>
                           )}
                         </td>
@@ -231,7 +263,7 @@ export default function UserManagement() {
           <DialogHeader>
             <DialogTitle>设置附加角色与督导范围</DialogTitle>
             <DialogDescription>
-              {editDialog.name} · 多角色切换允许该用户在多个身份间随时切换；督导专家/组长设置了所属学院即为"院级督导"（仅本学院），留空则为"校级督导"（全校）。
+              {editDialog.name} · 多角色切换允许该用户在多个身份间随时切换；督导范围决定其可查看与评价的课程范围，校级为全校、院级仅限所属学院。
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -250,20 +282,40 @@ export default function UserManagement() {
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="college-scope" className="text-sm">所属学院（督导范围 / 学院秘书管辖学院）</Label>
+              <Label className="text-sm">督导范围</Label>
+              <Select
+                value={editDialog.supervisorScope}
+                onValueChange={(v) => setEditDialog((p) => ({ ...p, supervisorScope: v as SupervisorScope }))}
+              >
+                <SelectTrigger className="text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="school">校级督导 —— 可查看并评价全校课程</SelectItem>
+                  <SelectItem value="college">院级督导 —— 仅限所属学院课程</SelectItem>
+                </SelectContent>
+              </Select>
+              {editDialog.supervisorScope === "college" && !editDialog.college.trim() && (
+                <p className="text-xs" style={{ color: "oklch(0.55 0.14 30)" }}>
+                  院级督导必须填写所属学院，否则保存时会按校级处理。
+                </p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="college-scope" className="text-sm">所属学院（院级督导范围 / 学院秘书管辖学院）</Label>
               <Input
                 id="college-scope"
-                placeholder="留空 = 校级督导（全校）；填写学院名称 = 院级督导（仅本学院）"
+                placeholder="如：经济学院；多个学院用顿号分隔"
                 value={editDialog.college}
                 onChange={(e) => setEditDialog((p) => ({ ...p, college: e.target.value }))}
               />
             </div>
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setEditDialog({ open: false, extraRoles: [], college: "" })}>取消</Button>
+            <Button variant="outline" onClick={() => setEditDialog({ open: false, extraRoles: [], college: "", supervisorScope: "school" })}>取消</Button>
             <Button
               onClick={handleSaveEdit}
-              disabled={updateExtraRolesMutation.isPending || updateCollegeMutation.isPending}
+              disabled={updateExtraRolesMutation.isPending || updateCollegeMutation.isPending || updateScopeMutation.isPending}
               style={{ background: "oklch(0.35 0.13 245)" }}
             >
               保存
