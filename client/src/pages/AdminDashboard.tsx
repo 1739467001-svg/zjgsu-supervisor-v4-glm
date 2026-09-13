@@ -39,28 +39,41 @@ export default function AdminDashboard() {
     count: stats.evalByWeekday.find((d) => d.weekday === day)?.count || 0,
   }));
 
-  const collegeBarData = stats.evalByCollege.slice(0, 12).map((c) => ({
-    name: (c.college || "").length > 8 ? (c.college || "").slice(0, 8) + "…" : (c.college || ""),
+  // 三张学院图表全部由 stats.collegeStats 这一份数据派生，
+  // 取前 N 名的口径、学院名截断长度也保持一致 ——
+  // 此前三张图各取前 12 / 前 8 / 前 8，平均分那张还少了「没打总分」的学院，
+  // 于是同一个页面上三张图的学院数量互相对不上。
+  const TOP_N = 10;
+  const shortName = (college: string | null) => {
+    const name = college || "";
+    return name.length > 8 ? name.slice(0, 8) + "…" : name;
+  };
+
+  const topColleges = stats.collegeStats.slice(0, TOP_N);
+  const othersCount = stats.collegeStats.slice(TOP_N).reduce((sum, c) => sum + c.count, 0);
+
+  const collegeBarData = topColleges.map((c) => ({
+    name: shortName(c.college),
     fullName: c.college,
     count: c.count,
   }));
 
-  const avgScoreData = stats.avgScoreByCollege.slice(0, 8).map((c) => ({
-    name: (c.college || "").length > 6 ? (c.college || "").slice(0, 6) + "…" : (c.college || ""),
-    score: parseFloat(c.avgScore),
+  const avgScoreData = topColleges.map((c) => ({
+    name: shortName(c.college),
+    fullName: c.college,
+    // 该学院所有评价都没打总分时为 null，柱子不画但学院仍列在轴上，不会凭空少一个学院
+    score: c.avgScore === null ? null : Number(c.avgScore.toFixed(2)),
     count: c.count,
+    scoredCount: c.scoredCount,
   }));
 
-  // 饼图取评价次数最高的前8个学院，其余聚合为"其他学院"，确保占比总和等于全部评价数据（与"评价次数"柱状图口径一致）
-  const pieTopColleges = stats.evalByCollege.slice(0, 8);
-  const pieOthersCount = stats.evalByCollege.slice(8).reduce((sum, c) => sum + c.count, 0);
   const pieData = [
-    ...pieTopColleges.map((c, i) => ({
-      name: (c.college || "").length > 6 ? (c.college || "").slice(0, 6) + "…" : (c.college || ""),
+    ...topColleges.map((c, i) => ({
+      name: shortName(c.college),
       value: c.count,
       color: COLORS[i % COLORS.length],
     })),
-    ...(pieOthersCount > 0 ? [{ name: "其他学院", value: pieOthersCount, color: "oklch(0.75 0.01 240)" }] : []),
+    ...(othersCount > 0 ? [{ name: `其他 ${stats.collegeStats.length - TOP_N} 个学院`, value: othersCount, color: "oklch(0.75 0.01 240)" }] : []),
   ];
 
   return (
@@ -77,7 +90,7 @@ export default function AdminDashboard() {
             { label: "全校课程总数", value: stats.totalCourses, icon: <BookOpen className="w-5 h-5" />, color: "oklch(0.35 0.13 245)", bg: "oklch(0.93 0.018 240)" },
             { label: "已完成督导评价", value: stats.totalEvaluations, icon: <CheckCircle className="w-5 h-5" />, color: "oklch(0.42 0.14 160)", bg: "oklch(0.93 0.018 160)" },
             { label: "督导专家人数", value: stats.totalSupervisors, icon: <Users className="w-5 h-5" />, color: "oklch(0.52 0.16 200)", bg: "oklch(0.93 0.018 200)" },
-            { label: "已覆盖学院数", value: stats.evalByCollege.length, icon: <TrendingUp className="w-5 h-5" />, color: "oklch(0.55 0.14 85)", bg: "oklch(0.95 0.02 85)" },
+            { label: "已覆盖学院数", value: stats.collegeStats.length, icon: <TrendingUp className="w-5 h-5" />, color: "oklch(0.55 0.14 85)", bg: "oklch(0.95 0.02 85)" },
           ].map((stat) => (
             <div key={stat.label} className="bg-white rounded-xl p-5 relative overflow-hidden" style={{ border: "1px solid oklch(0.90 0.01 240)" }}>
               <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: stat.color }} />
@@ -161,7 +174,10 @@ export default function AdminDashboard() {
                   <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.93 0.006 240)" />
                   <XAxis dataKey="name" tick={{ fontSize: 10, fill: "oklch(0.52 0.025 240)" }} angle={-30} textAnchor="end" interval={0} />
                   <YAxis domain={[0, 5]} tick={{ fontSize: 11, fill: "oklch(0.52 0.025 240)" }} />
-                  <Tooltip formatter={(value) => [`${value} 分`, "平均评分"]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                  <Tooltip
+                    formatter={(value) => [value === null ? "暂无评分" : `${value} 分`, "平均评分"]}
+                    contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                  />
                   <Bar dataKey="score" fill="oklch(0.62 0.14 160)" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>

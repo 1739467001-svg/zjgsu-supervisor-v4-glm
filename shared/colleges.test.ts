@@ -2,9 +2,16 @@ import { describe, expect, it } from "vitest";
 import { collegeVariants, resolveCollege, isCollegeInScope, OFFICIAL_COLLEGES } from "./colleges";
 
 describe("collegeVariants", () => {
-  it("把括号内容单独保留为一种写法", () => {
-    expect(collegeVariants("工商管理学院（MBA学院）").sort()).toEqual(
-      ["工商管理学院（MBA学院）", "工商管理学院", "MBA学院"].sort()
+  it("合写的「工商管理学院（MBA学院）」归一为工商管理学院，不再展开出 MBA学院", () => {
+    // 2026-2027 学年起两院拆分：MBA 学院的课程来自单独的 MBA 课表，
+    // 合写名下的全是工商管理学院的学术学位课程。若仍展开出「MBA学院」这种写法，
+    // MBA 学院的督导会连带匹配上工商管理学院的课，拆分就白做了。
+    expect(collegeVariants("工商管理学院（MBA学院）")).toEqual(["工商管理学院"]);
+  });
+
+  it("带括号的官方全称仍保留括号内写法，便于匹配历史数据", () => {
+    expect(collegeVariants("法学院（知识产权学院）").sort()).toEqual(
+      ["法学院（知识产权学院）", "法学院", "知识产权学院"].sort()
     );
   });
 
@@ -19,9 +26,14 @@ describe("collegeVariants", () => {
 });
 
 describe("resolveCollege", () => {
-  it("简称可解析为官方全称", () => {
-    expect(resolveCollege("金融学院")).toBe("金融学院（浙商资产管理学院）");
-    expect(resolveCollege("MBA学院")).toBe("工商管理学院（MBA学院）");
+  it("角色表的全称解析为课表使用的简称（课表是权限比对的实际对象）", () => {
+    expect(resolveCollege("金融学院（浙商资产管理学院）")).toBe("金融学院");
+    expect(resolveCollege("法学院（知识产权学院）")).toBe("法学院");
+  });
+
+  it("MBA学院是独立学院，不再被解析成工商管理学院", () => {
+    expect(resolveCollege("MBA学院")).toBe("MBA学院");
+    expect(resolveCollege("工商管理学院")).toBe("工商管理学院");
   });
 
   it("官方全称原样返回", () => {
@@ -41,11 +53,16 @@ describe("isCollegeInScope", () => {
     expect(isCollegeInScope("法学院", "法学院（知识产权学院）")).toBe(true);
   });
 
-  it("括号内的学院名也能匹配到合并口径的课程", () => {
-    // 课表把 MBA 学院并在工商管理学院名下，人员表却已按拆分口径单独填「MBA学院」。
-    // 这是早先「两侧都剥括号」的实现匹配不到的情形。
-    expect(isCollegeInScope("MBA学院", "工商管理学院（MBA学院）")).toBe(true);
+  it("括号内的学院名也能匹配到带括号全称的课程", () => {
     expect(isCollegeInScope("知识产权学院", "法学院（知识产权学院）")).toBe(true);
+  });
+
+  it("工商管理学院与 MBA 学院互不匹配（本学年起两院拆分）", () => {
+    expect(isCollegeInScope("MBA学院", "工商管理学院")).toBe(false);
+    expect(isCollegeInScope("工商管理学院", "MBA学院")).toBe(false);
+    // 各自的课程仍各自匹配得上
+    expect(isCollegeInScope("MBA学院", "MBA学院")).toBe(true);
+    expect(isCollegeInScope("工商管理学院", "工商管理学院")).toBe(true);
   });
 
   it("完全一致时匹配", () => {
@@ -58,8 +75,13 @@ describe("isCollegeInScope", () => {
     expect(isCollegeInScope("会计学院", "统计与数据科学学院")).toBe(false);
   });
 
-  it("名称确有出入且无法推断时不匹配（留给人工确认，不臆测）", () => {
-    expect(isCollegeInScope("人文学院", "人文与传播学院")).toBe(false);
+  it("已按真实课表确认的别名可以匹配（人文与传播学院在课表里就叫人文学院）", () => {
+    expect(isCollegeInScope("人文学院", "人文与传播学院")).toBe(true);
+  });
+
+  it("确实不同的学院不会因为字面相近而误配", () => {
+    expect(isCollegeInScope("人文学院", "未来传播学院")).toBe(false);
+    expect(isCollegeInScope("法学院", "法律硕士教育中心")).toBe(false);
   });
 
   it("支持一人管多个学院（顿号/逗号分隔）", () => {

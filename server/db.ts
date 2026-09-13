@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import mysql from "mysql2/promise";
 import type { Pool } from "mysql2/promise";
@@ -174,6 +174,19 @@ export async function getActiveSemester() {
   return rows.length > 0 ? rows[0] : undefined;
 }
 
+/**
+ * 课程的「当前学期」筛选条件。
+ *
+ * 归档后的旧课程带着上一学期的 semesterId，自然被排除；
+ * semesterId 为空的是尚未归档的历史数据，一并视为当前学期 ——
+ * 否则管理员一旦设了当前学期、却还没跑课表导入，全校课程会瞬间变成 0 条。
+ */
+export async function currentSemesterCourseFilter() {
+  const active = await getActiveSemester();
+  if (!active) return undefined;
+  return or(eq(courses.semesterId, active.id), isNull(courses.semesterId));
+}
+
 export async function listSemesters() {
   const db = await getDb();
   if (!db) return [];
@@ -236,11 +249,17 @@ export async function getCourses(filters: {
   courseName?: string;
   page?: number;
   pageSize?: number;
+  /** 传 false 可查全部学期（导出/核对历史数据用），默认只查当前学期 */
+  currentSemesterOnly?: boolean;
 }) {
   const db = await getDb();
   if (!db) return { data: [], total: 0 };
 
   const conditions = [];
+  if (filters.currentSemesterOnly !== false) {
+    const semesterFilter = await currentSemesterCourseFilter();
+    if (semesterFilter) conditions.push(semesterFilter);
+  }
   // 严格过滤：只有非空字符串才作为筛选条件
   // 学院支持多学院字符串（顿号/逗号分隔，供学院秘书/院级督导多学院场景使用），用模糊匹配逐一比对
   if (filters.college && filters.college.trim()) {
@@ -292,10 +311,15 @@ export async function getCoursesByCollege(college: string) {
 export async function getDistinctColleges() {
   const db = await getDb();
   if (!db) return [];
+  // 只列当前学期开课的学院，否则筛选框里会混进已归档学期才有的学院
+  const semesterFilter = await currentSemesterCourseFilter();
+  const where = semesterFilter
+    ? and(sql`${courses.college} != ''`, semesterFilter)
+    : sql`${courses.college} != ''`;
   const result = await db
     .selectDistinct({ college: courses.college })
     .from(courses)
-    .where(sql`${courses.college} != ''`)
+    .where(where)
     .orderBy(courses.college);
   return result.map((r) => r.college).filter(Boolean);
 }
@@ -303,7 +327,12 @@ export async function getDistinctColleges() {
 export async function getDistinctTeachers(college?: string) {
   const db = await getDb();
   if (!db) return [];
-  const where = college ? eq(courses.college, college) : undefined;
+  const semesterFilter = await currentSemesterCourseFilter();
+  const parts = [
+    ...(college ? [eq(courses.college, college)] : []),
+    ...(semesterFilter ? [semesterFilter] : []),
+  ];
+  const where = parts.length > 0 ? and(...parts) : undefined;
   const result = await db
     .selectDistinct({ teacher: courses.teacher })
     .from(courses)
@@ -585,24 +614,33 @@ export async function getAdminStats() {
     totalCourses,
     totalEvaluations,
     totalSupervisors,
-    evalByCollege,
+    collegeStats,
     evalByWeekday,
     recentEvals,
     topSupervisors,
-    avgScoreByCollege,
   ] = await Promise.all([
-    // 总课程数
-    db.select({ count: sql<number>`count(*)` }).from(courses),
+    // 总课程数：与「全校课程」列表同口径，只数当前学期，
+    // 否则归档的上学期课程会让这个数字比课程列表多出一截
+    db.select({ count: sql<number>`count(*)` }).from(courses).where(await currentSemesterCourseFilter()),
     // 总评价数
     db.select({ count: sql<number>`count(*)` }).from(courseEvaluations).where(eq(courseEvaluations.status, "submitted")),
     // 督导专家数
     db.select({ count: sql<number>`count(*)` }).from(users).where(inArray(users.role, ["supervisor_expert", "supervisor_leader"] as any[])),
-    // 各学院评价次数（用 leftJoin 而非 innerJoin：课程被替换/删除后仍保留关联评价的行，
-    // 避免"孤儿评价"从学院维度统计中被静默丢弃，导致与总数 KPI 对不上）
+    // 各学院统计：评价次数与平均分必须出自同一次聚合。
+    //
+    // 「评价次数」「学院分布」「平均评分」三张图表此前各查各的 ——
+    // 平均分那一查还多带了 overallScore IS NOT NULL 的条件，于是「有评价但都没打总分」
+    // 的学院只出现在前两张图里，三张图的学院数量对不上。现在统一成一份数据，
+    // 平均分用 AVG 自动跳过空值，学院集合与评价次数完全一致。
+    //
+    // leftJoin 而非 innerJoin：课程被替换/删除后仍保留关联评价的行，
+    // 避免"孤儿评价"从学院维度统计中被静默丢弃，导致与总数 KPI 对不上。
     db
       .select({
         college: sql<string>`COALESCE(${courses.college}, '未知学院（原课程已变更）')`,
         count: sql<number>`count(*)`,
+        scoredCount: sql<number>`SUM(CASE WHEN ${courseEvaluations.overallScore} IS NOT NULL THEN 1 ELSE 0 END)`,
+        avgScore: sql<number | null>`AVG(${courseEvaluations.overallScore})`,
       })
       .from(courseEvaluations)
       .leftJoin(courses, eq(courseEvaluations.courseId, courses.id))
@@ -637,19 +675,6 @@ export async function getAdminStats() {
       .groupBy(courseEvaluations.supervisorId)
       .orderBy(desc(sql`count(*)`))
       .limit(10),
-    // 各学院平均评分（同样用 leftJoin 保留孤儿评价；按评价次数降序排列，
-    // 与"各学院督导评价次数"图表口径一致，避免两张图表因排序不同而展示不同的学院集合）
-    db
-      .select({
-        college: sql<string>`COALESCE(${courses.college}, '未知学院（原课程已变更）')`,
-        avgScore: sql<number>`AVG(${courseEvaluations.overallScore})`,
-        count: sql<number>`count(*)`,
-      })
-      .from(courseEvaluations)
-      .leftJoin(courses, eq(courseEvaluations.courseId, courses.id))
-      .where(and(eq(courseEvaluations.status, "submitted"), sql`${courseEvaluations.overallScore} IS NOT NULL`))
-      .groupBy(sql`COALESCE(${courses.college}, '未知学院（原课程已变更）')`)
-      .orderBy(desc(sql`count(*)`)),
   ]);
 
   // 获取最近评价的详细信息
@@ -662,21 +687,26 @@ export async function getAdminStats() {
     : [];
   const supervisorMap = new Map(supervisorDetails.map((u) => [u.id, u]));
 
+  // 三张学院图表共用这一份数据，保证学院集合、数量、排序完全一致
+  const collegeRows = collegeStats.map((r) => ({
+    college: r.college,
+    count: Number(r.count),
+    scoredCount: Number(r.scoredCount || 0),
+    // 没有任何一条评价打了总分的学院，平均分为 null（界面显示「—」），
+    // 而不是让这个学院整个从图表里消失
+    avgScore: r.avgScore === null || r.avgScore === undefined ? null : Number(r.avgScore),
+  }));
+
   return {
     totalCourses: Number(totalCourses[0]?.count || 0),
     totalEvaluations: Number(totalEvaluations[0]?.count || 0),
     totalSupervisors: Number(totalSupervisors[0]?.count || 0),
-    evalByCollege: evalByCollege.map((r) => ({ college: r.college, count: Number(r.count) })),
+    collegeStats: collegeRows,
     evalByWeekday: evalByWeekday.map((r) => ({ weekday: r.weekday, count: Number(r.count) })),
     recentEvals: recentEnriched,
     topSupervisors: topSupervisors.map((s) => ({
       supervisor: supervisorMap.get(s.supervisorId),
       count: Number(s.count),
-    })),
-    avgScoreByCollege: avgScoreByCollege.map((r) => ({
-      college: r.college,
-      avgScore: Number(r.avgScore || 0).toFixed(2),
-      count: Number(r.count),
     })),
   };
 }
@@ -737,6 +767,9 @@ export async function getCourseEvaluationProgress(college?: string) {
 
   // 构建课程查询条件
   const conditions = [];
+  // 评价进度只看当前学期，否则上个学期的课会把覆盖率稀释成一个没意义的数字
+  const semesterFilter = await currentSemesterCourseFilter();
+  if (semesterFilter) conditions.push(semesterFilter);
   if (college) {
     // 支持多学院字符串（顿号/逗号分隔）
     const colleges = college
@@ -808,6 +841,11 @@ export async function getAllCollegeEvaluationProgress() {
   const db = await getDb();
   if (!db) return [];
 
+  // 覆盖率只针对当前学期：把已归档的上学期课程算进分母，
+  // 会让本学期的进度被稀释成一个没有意义的数字，学院名单里也会冒出
+  // 只有归档数据才有的学院（如拆分前的「工商管理学院（MBA学院）」）
+  const semesterFilter = await currentSemesterCourseFilter();
+
   // 按学院统计课程总数
   const courseTotals = await db
     .select({
@@ -815,6 +853,7 @@ export async function getAllCollegeEvaluationProgress() {
       total: sql<number>`count(*)`,
     })
     .from(courses)
+    .where(semesterFilter)
     .groupBy(courses.college)
     .orderBy(courses.college);
 
@@ -827,7 +866,11 @@ export async function getAllCollegeEvaluationProgress() {
     })
     .from(courseEvaluations)
     .innerJoin(courses, eq(courseEvaluations.courseId, courses.id))
-    .where(eq(courseEvaluations.status, "submitted"))
+    .where(
+      semesterFilter
+        ? and(eq(courseEvaluations.status, "submitted"), semesterFilter)
+        : eq(courseEvaluations.status, "submitted")
+    )
     .groupBy(courses.college);
 
   const evalMap = new Map(evaluatedCounts.map((e) => [e.college, e]));

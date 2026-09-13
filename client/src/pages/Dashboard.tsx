@@ -156,7 +156,7 @@ export default function Dashboard() {
               { label: "全校课程总数", value: adminStats.totalCourses, icon: <BookOpen className="w-5 h-5" />, color: "oklch(0.35 0.13 245)", bg: "oklch(0.93 0.018 240)" },
               { label: "已完成督导评价", value: adminStats.totalEvaluations, icon: <CheckCircle className="w-5 h-5" />, color: "oklch(0.42 0.14 160)", bg: "oklch(0.93 0.018 160)" },
               { label: "督导专家人数", value: adminStats.totalSupervisors, icon: <Users className="w-5 h-5" />, color: "oklch(0.52 0.16 200)", bg: "oklch(0.93 0.018 200)" },
-              { label: "覆盖学院数", value: adminStats.evalByCollege.length, icon: <Building2 className="w-5 h-5" />, color: "oklch(0.55 0.14 85)", bg: "oklch(0.95 0.02 85)" },
+              { label: "覆盖学院数", value: adminStats.collegeStats.length, icon: <Building2 className="w-5 h-5" />, color: "oklch(0.55 0.14 85)", bg: "oklch(0.95 0.02 85)" },
             ].map((stat) => (
               <div key={stat.label} className="bg-white rounded-xl p-5" style={{ border: "1px solid oklch(0.90 0.01 240)" }}>
                 <div className="flex items-center justify-between mb-3">

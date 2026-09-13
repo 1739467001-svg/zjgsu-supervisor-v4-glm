@@ -12,7 +12,8 @@
     "test": "vitest run",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "db:doctor": "node scripts/db-doctor.mjs",
-    "db:import-users": "tsx scripts/import-users.ts"
+    "db:import-users": "tsx scripts/import-users.ts",
+    "db:import-courses": "tsx scripts/import-courses.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",

@@ -1,0 +1,1 @@
+ALTER TABLE `courses` MODIFY COLUMN `classId` varchar(255);

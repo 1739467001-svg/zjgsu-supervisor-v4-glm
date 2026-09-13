@@ -72,6 +72,10 @@ export type InsertSemester = typeof semesters.$inferInsert;
 // ============================================================
 export const courses = mysqlTable("courses", {
   id: int("id").autoincrement().primaryKey(),
+  // 所属学期。换学期时不是删掉旧课表，而是把旧课打上上一学期的 id 归档，
+  // 这样去年的评价/听课计划仍能查到它们评的是哪门课。
+  // 为空表示尚未归档的历史数据，按当前学期处理（见 getCourses 的 semesterScope）。
+  semesterId: int("semesterId"),
   // 学年
   academicYear: varchar("academicYear", { length: 16 }),
   // 学期
@@ -84,8 +88,10 @@ export const courses = mysqlTable("courses", {
   courseType: varchar("courseType", { length: 64 }),
   // 教室名称
   classroom: varchar("classroom", { length: 128 }),
-  // 班级编号
-  classId: varchar("classId", { length: 64 }),
+  // 班级编号。MBA 课表存在多个班合上一节课的情况，班级会并列写在一起
+  // （「2025MBA数领班、2025MBA集中班、2026MBA数字领军班、…」实测最长 159 字符），
+  // 因此不能沿用 64 的宽度。
+  classId: varchar("classId", { length: 255 }),
   // 主讲教师
   teacher: varchar("teacher", { length: 64 }),
   // 校区名称（下沙/教工路）

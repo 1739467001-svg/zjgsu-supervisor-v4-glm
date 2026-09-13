@@ -123,4 +123,68 @@ describe.skipIf(!TEST_URL)("数据库集成测试", () => {
       expect(names).toEqual(["秘书兼督导", "督导兼主管", "纯督导"].sort());
     });
   });
+
+  // ============================================================
+  // 统计仪表盘：三张学院图表必须出自同一份数据
+  // ============================================================
+  describe("统计仪表盘的学院口径", () => {
+    beforeEach(async () => {
+      await db.delete(schema.courseEvaluations);
+      await db.delete(schema.courses);
+    });
+
+    async function seedCourse(college: string) {
+      const [res] = await db.insert(schema.courses).values({
+        college, courseName: `${college}的课`, teacher: "某老师",
+        weekday: "星期一", period: "第1-2节", classroom: "A101",
+      });
+      return Number(res.insertId);
+    }
+
+    async function seedEval(courseId: number, overallScore: number | null) {
+      await db.insert(schema.courseEvaluations).values({
+        courseId, supervisorId: 1, status: "submitted", overallScore,
+      });
+    }
+
+    it("有评价但一条总分都没打的学院，仍然出现在统计里（此前会从平均分图表消失，导致三张图学院数不一致）", async () => {
+      const scored = await seedCourse("经济学院");
+      const unscored = await seedCourse("未来传播学院");
+      await seedEval(scored, 4.5);
+      await seedEval(unscored, null);
+      await seedEval(unscored, null);
+
+      const stats = await dbMod.getAdminStats();
+      const names = stats!.collegeStats.map((r: any) => r.college);
+      expect(names).toContain("经济学院");
+      expect(names).toContain("未来传播学院");
+
+      const blank = stats!.collegeStats.find((r: any) => r.college === "未来传播学院");
+      expect(blank.count).toBe(2);
+      expect(blank.scoredCount).toBe(0);
+      expect(blank.avgScore).toBeNull();
+    });
+
+    it("各学院评价次数之和等于评价总数，一条都不会漏", async () => {
+      for (const college of ["经济学院", "人文学院", "MBA学院"]) {
+        const id = await seedCourse(college);
+        await seedEval(id, 4);
+        await seedEval(id, null);
+      }
+      const stats = await dbMod.getAdminStats();
+      const sum = stats!.collegeStats.reduce((a: number, r: any) => a + r.count, 0);
+      expect(sum).toBe(stats!.totalEvaluations);
+    });
+
+    it("课程被换掉后，孤儿评价归入「未知学院」而不是被悄悄丢掉", async () => {
+      const id = await seedCourse("经济学院");
+      await seedEval(id, 4);
+      await db.delete(schema.courses);
+
+      const stats = await dbMod.getAdminStats();
+      const sum = stats!.collegeStats.reduce((a: number, r: any) => a + r.count, 0);
+      expect(sum).toBe(stats!.totalEvaluations);
+      expect(stats!.collegeStats.map((r: any) => r.college).join()).toMatch(/未知学院/);
+    });
+  });
 });
