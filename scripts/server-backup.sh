@@ -160,7 +160,8 @@ else
         cp -a "$f" "$STAGE/config/${name}__$(basename "$f")" 2>/dev/null
       done
   done
-  ls -1 "$STAGE/config" 2>/dev/null | grep -q . && ok "环境变量与进程配置已单独留存（含明文密钥，注意保管）"
+  # 同样避开 SIGPIPE + pipefail 的坑，直接数文件个数
+  [ -n "$(ls -A "$STAGE/config" 2>/dev/null)" ] && ok "环境变量与进程配置已单独留存（含明文密钥，注意保管）"
 fi
 
 # ------------------------------------------------------------
@@ -283,11 +284,20 @@ ok "RESTORE.md 已生成"
 # ------------------------------------------------------------
 sec "打包与校验"
 tar czf "$ARCHIVE" -C "$(dirname "$STAGE")" "$(basename "$STAGE")" || die "打包失败"
-tar tzf "$ARCHIVE" >/dev/null 2>&1 || die "归档校验失败（文件可能损坏）"
+
+# 归档内容只列一次，落到临时文件里再检查。
+# 千万不要把归档清单直接管道给 grep -q：grep -q 一命中就退出，
+# 归档条目多时列表命令还在往管道里写，会被 SIGPIPE 杀掉（退出码 141），
+# 叠加 set -o pipefail 后整条管道判定为失败 —— 于是「文件明明在归档里」
+# 却报「归档缺少 XXX」，脚本 exit 1，后面的 sha256 和清理都不会执行。
+# 这是纯粹的校验误报，备份本身是完好的。
+ARCHIVE_LIST="$(mktemp)"
+trap 'rm -f "$ARCHIVE_LIST"' EXIT
+tar tzf "$ARCHIVE" > "$ARCHIVE_LIST" 2>/dev/null || die "归档校验失败（文件可能损坏）"
 ok "归档可正常解压"
 
 for must in RESTORE.md system/environment.txt; do
-  tar tzf "$ARCHIVE" | grep -q "$must" || die "归档缺少 $must"
+  grep -q "$must" "$ARCHIVE_LIST" || die "归档缺少 $must"
 done
 ok "关键文件齐全"
 
