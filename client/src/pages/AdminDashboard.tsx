@@ -2,15 +2,10 @@ import DashboardLayout from "@/components/DashboardLayout";
 import SemesterSettings from "@/components/SemesterSettings";
 import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, RadarChart, Radar, PolarGrid, PolarAngleAxis } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, LabelList, RadarChart, Radar, PolarGrid, PolarAngleAxis } from "recharts";
 import { TrendingUp, Users, BookOpen, CheckCircle, Eye, ChevronRight, BarChart3 } from "lucide-react";
-
-const COLORS = [
-  "oklch(0.35 0.13 245)", "oklch(0.52 0.16 200)", "oklch(0.62 0.14 160)",
-  "oklch(0.72 0.14 85)", "oklch(0.62 0.16 30)", "oklch(0.55 0.14 300)",
-  "oklch(0.65 0.12 120)", "oklch(0.45 0.15 260)", "oklch(0.70 0.13 50)",
-  "oklch(0.50 0.17 180)",
-];
+import { buildCollegeChartRows } from "@shared/dashboardCharts";
+import { CollegeCountChart, CollegeShareChart, CollegeScoreChart } from "@/components/CollegeCharts";
 
 const WEEKDAY_ORDER = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"];
 
@@ -39,42 +34,10 @@ export default function AdminDashboard() {
     count: stats.evalByWeekday.find((d) => d.weekday === day)?.count || 0,
   }));
 
-  // 三张学院图表全部由 stats.collegeStats 这一份数据派生，
-  // 取前 N 名的口径、学院名截断长度也保持一致 ——
-  // 此前三张图各取前 12 / 前 8 / 前 8，平均分那张还少了「没打总分」的学院，
-  // 于是同一个页面上三张图的学院数量互相对不上。
-  const TOP_N = 10;
-  const shortName = (college: string | null) => {
-    const name = college || "";
-    return name.length > 8 ? name.slice(0, 8) + "…" : name;
-  };
-
-  const topColleges = stats.collegeStats.slice(0, TOP_N);
-  const othersCount = stats.collegeStats.slice(TOP_N).reduce((sum, c) => sum + c.count, 0);
-
-  const collegeBarData = topColleges.map((c) => ({
-    name: shortName(c.college),
-    fullName: c.college,
-    count: c.count,
-  }));
-
-  const avgScoreData = topColleges.map((c) => ({
-    name: shortName(c.college),
-    fullName: c.college,
-    // 该学院所有评价都没打总分时为 null，柱子不画但学院仍列在轴上，不会凭空少一个学院
-    score: c.avgScore === null ? null : Number(c.avgScore.toFixed(2)),
-    count: c.count,
-    scoredCount: c.scoredCount,
-  }));
-
-  const pieData = [
-    ...topColleges.map((c, i) => ({
-      name: shortName(c.college),
-      value: c.count,
-      color: COLORS[i % COLORS.length],
-    })),
-    ...(othersCount > 0 ? [{ name: `其他 ${stats.collegeStats.length - TOP_N} 个学院`, value: othersCount, color: "oklch(0.75 0.01 240)" }] : []),
-  ];
+  // 三张学院图表共用同一个数组（见 shared/dashboardCharts.ts）。
+  // 「学院数量一致」由构造保证，而不是靠三处代码各自小心地用同样的截断口径 ——
+  // 上一版就是数据源统一了、截断口径没统一，页面上仍然是 10 / 11 / 10。
+  const collegeRows = buildCollegeChartRows(stats.collegeStats);
 
   return (
     <DashboardLayout>
@@ -108,47 +71,13 @@ export default function AdminDashboard() {
           {/* 各学院督导次数柱状图 */}
           <div className="bg-white rounded-xl p-5" style={{ border: "1px solid oklch(0.90 0.01 240)" }}>
             <h3 className="text-sm font-semibold mb-4" style={{ color: "oklch(0.18 0.025 240)" }}>各学院督导评价次数</h3>
-            {collegeBarData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={collegeBarData} margin={{ top: 5, right: 10, left: -20, bottom: 60 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.93 0.006 240)" />
-                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: "oklch(0.52 0.025 240)" }} angle={-35} textAnchor="end" interval={0} />
-                  <YAxis tick={{ fontSize: 10, fill: "oklch(0.52 0.025 240)" }} />
-                  <Tooltip
-                    formatter={(value) => [`${value} 次`, "督导次数"]}
-                    labelFormatter={(label, payload) => payload?.[0]?.payload?.fullName || label}
-                    contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid oklch(0.90 0.01 240)" }}
-                  />
-                  <Bar dataKey="count" fill="oklch(0.35 0.13 245)" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-[260px]" style={{ color: "oklch(0.65 0.02 240)" }}>
-                <p className="text-sm">暂无数据</p>
-              </div>
-            )}
+            <CollegeCountChart rows={collegeRows} />
           </div>
 
           {/* 学院占比饼图 */}
           <div className="bg-white rounded-xl p-5" style={{ border: "1px solid oklch(0.90 0.01 240)" }}>
             <h3 className="text-sm font-semibold mb-4" style={{ color: "oklch(0.18 0.025 240)" }}>督导评价学院分布</h3>
-            {pieData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={260}>
-                <PieChart>
-                  <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={2} dataKey="value">
-                    {pieData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value) => [`${value} 次`, "督导次数"]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-[260px]" style={{ color: "oklch(0.65 0.02 240)" }}>
-                <p className="text-sm">暂无数据</p>
-              </div>
-            )}
+            <CollegeShareChart rows={collegeRows} />
           </div>
 
           {/* 按星期分布 */}
@@ -168,60 +97,9 @@ export default function AdminDashboard() {
           {/* 各学院平均评分 */}
           <div className="bg-white rounded-xl p-5" style={{ border: "1px solid oklch(0.90 0.01 240)" }}>
             <h3 className="text-sm font-semibold mb-4" style={{ color: "oklch(0.18 0.025 240)" }}>各学院平均评分</h3>
-            {avgScoreData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={avgScoreData} margin={{ top: 5, right: 10, left: -20, bottom: 40 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.93 0.006 240)" />
-                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: "oklch(0.52 0.025 240)" }} angle={-30} textAnchor="end" interval={0} />
-                  <YAxis domain={[0, 5]} tick={{ fontSize: 11, fill: "oklch(0.52 0.025 240)" }} />
-                  <Tooltip
-                    formatter={(value) => [value === null ? "暂无评分" : `${value} 分`, "平均评分"]}
-                    contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                  />
-                  <Bar dataKey="score" fill="oklch(0.62 0.14 160)" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-[220px]" style={{ color: "oklch(0.65 0.02 240)" }}>
-                <p className="text-sm">暂无评分数据</p>
-              </div>
-            )}
+            <CollegeScoreChart rows={collegeRows} />
           </div>
         </div>
-
-        {/* 活跃督导专家 */}
-        {stats.topSupervisors.length > 0 && (
-          <div className="bg-white rounded-xl p-5" style={{ border: "1px solid oklch(0.90 0.01 240)" }}>
-            <h3 className="text-sm font-semibold mb-4" style={{ color: "oklch(0.18 0.025 240)" }}>最活跃督导专家 Top 10</h3>
-            <div className="space-y-2">
-              {stats.topSupervisors.map(({ supervisor, count }, idx) => (
-                <div key={idx} className="flex items-center gap-3">
-                  <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{
-                    background: idx < 3 ? "oklch(0.35 0.13 245)" : "oklch(0.93 0.01 240)",
-                    color: idx < 3 ? "white" : "oklch(0.52 0.025 240)",
-                  }}>
-                    {idx + 1}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-medium" style={{ color: "oklch(0.20 0.025 240)" }}>{supervisor?.name || "未知"}</span>
-                      <span className="text-xs font-semibold" style={{ color: "oklch(0.35 0.13 245)" }}>{count} 次</span>
-                    </div>
-                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "oklch(0.93 0.01 240)" }}>
-                      <div className="h-full rounded-full transition-all" style={{
-                        width: `${(count / (stats.topSupervisors[0]?.count || 1)) * 100}%`,
-                        background: "oklch(0.35 0.13 245)",
-                      }} />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* 学期配置 */}
-        <SemesterSettings />
 
         {/* 全校各学院评价进度 */}
         <div className="bg-white rounded-xl p-5" style={{ border: "1px solid oklch(0.90 0.01 240)" }}>
