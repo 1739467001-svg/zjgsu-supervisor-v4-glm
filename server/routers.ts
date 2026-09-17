@@ -37,6 +37,8 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
   updateEvaluation,
+  getListeningPlanById,
+  getNotificationById,
   updateListeningPlanStatus,
   updateUserCollege,
   updateUserSupervisorScope,
@@ -45,6 +47,7 @@ import {
   updateUserRole,
   upsertUser,
 } from "./db";
+import { canViewEvaluation, canMutateListeningPlan } from "@shared/evaluationAccess";
 import { sdk } from "./_core/sdk";
 import { generateEvaluationExcel, generateEvaluationPdfHtml, generateEvaluationPdfBuffer } from "./exportUtils";
 
@@ -264,12 +267,19 @@ export const appRouter = router({
 
     updateStatus: supervisorProcedure
       .input(z.object({ planId: z.number(), status: z.enum(["pending", "completed", "cancelled"]) }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        // 只验「是不是督导」不够：那样任何督导都能改别人的计划
+        const plan = await getListeningPlanById(input.planId);
+        if (!plan) throw new TRPCError({ code: "NOT_FOUND" });
+        if (!canMutateListeningPlan(ctx.user, plan)) throw new TRPCError({ code: "FORBIDDEN" });
         await updateListeningPlanStatus(input.planId, input.status);
         return { success: true };
       }),
 
-    delete: supervisorProcedure.input(z.number()).mutation(async ({ input }) => {
+    delete: supervisorProcedure.input(z.number()).mutation(async ({ input, ctx }) => {
+      const plan = await getListeningPlanById(input);
+      if (!plan) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!canMutateListeningPlan(ctx.user, plan)) throw new TRPCError({ code: "FORBIDDEN" });
       await deleteListeningPlan(input);
       return { success: true };
     }),
@@ -383,20 +393,13 @@ export const appRouter = router({
       const evaluation = await getEvaluationById(input);
       if (!evaluation) throw new TRPCError({ code: "NOT_FOUND" });
 
-      // 学院教学秘书 / 院级督导 只能查看本学院的评价
-      const scopedCollege = getScopedCollege(ctx.user);
-      if (scopedCollege && evaluation.supervisorId !== ctx.user!.id) {
-        const course = await getCourseById(evaluation.courseId);
-        if (!course) {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
-        if (!isCollegeInScope(scopedCollege, course.college)) {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
+      const course = await getCourseById(evaluation.courseId);
+      // 与列表、打印路由共用同一条判定：此前详情只拦了院级范围，
+      // 校级督导专家只要知道别人的评价 ID 就能直接读到详情。
+      if (!canViewEvaluation(ctx.user, evaluation, course)) {
+        throw new TRPCError({ code: "FORBIDDEN" });
       }
 
-      // 关联课程和督导专家数据
-      const course = await getCourseById(evaluation.courseId);
       const allUsers = await getAllUsers();
       const supervisor = allUsers.find((u) => u.id === evaluation.supervisorId);
 
@@ -550,7 +553,13 @@ export const appRouter = router({
       .input(z.object({ college: z.string().optional() }))
       .query(async ({ input, ctx }) => {
         const user = ctx.user!;
-        const college = user.role === "college_secretary" ? (user.college || undefined) : input.college;
+        // 此前这里没有任何角色门禁：任何登录用户不传 college 就能拿到全校所有评价。
+        if (!hasAnyRole(user, ["supervisor_leader", "college_secretary", "graduate_admin", "admin"])) {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        // 用 getScopedCollege 而不是直接比较主角色，附加角色与院级督导才会被认到
+        const scopedCollege = getScopedCollege(user);
+        const college = scopedCollege || input.college;
         const evals = await getAllEvaluations({ college });
         return {
           total: evals.length,
@@ -563,15 +572,13 @@ export const appRouter = router({
       .input(z.object({ college: z.string().optional() }))
       .query(async ({ input, ctx }) => {
         const user = ctx.user!;
-        let college: string | undefined;
-        if (user.role === "college_secretary") {
-          college = user.college || undefined;
-        } else if (["graduate_admin", "admin"].includes(user.role || "")) {
-          college = input.college;
-        } else {
+        // hasAnyRole / getScopedCollege 而不是直接比较 user.role：
+        // 否则「主角色普通用户 + 附加角色研究生院主管」会被挡在外面
+        if (!hasAnyRole(user, ["college_secretary", "graduate_admin", "admin"])) {
           throw new TRPCError({ code: "FORBIDDEN" });
         }
-        return getCourseEvaluationProgress(college);
+        const scopedCollege = getScopedCollege(user);
+        return getCourseEvaluationProgress(scopedCollege || input.college);
       }),
     // 全校各学院评价进度汇总（研究生院主管专用）
     allCollegeProgress: adminProcedure.query(async () => {
@@ -596,7 +603,11 @@ export const appRouter = router({
       return getUnreadNotificationCount(ctx.user!.id);
     }),
 
-    markRead: protectedProcedure.input(z.number()).mutation(async ({ input }) => {
+    markRead: protectedProcedure.input(z.number()).mutation(async ({ input, ctx }) => {
+      // 不校验收件人的话，知道通知 ID 就能把别人的通知标为已读
+      const notification = await getNotificationById(input);
+      if (!notification) throw new TRPCError({ code: "NOT_FOUND" });
+      if (notification.recipientId !== ctx.user!.id) throw new TRPCError({ code: "FORBIDDEN" });
       await markNotificationRead(input);
       return { success: true };
     }),

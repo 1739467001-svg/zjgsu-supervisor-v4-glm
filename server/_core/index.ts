@@ -12,6 +12,8 @@ import uploadCoursesRouter from "../uploadCourses";
 import { sdk } from "./sdk";
 import { getCourseById, getEvaluationById, getAllUsers } from "../db";
 import { generatePrintableHtml } from "../exportUtils";
+import { hasAnyRole } from "@shared/roles";
+import { canViewEvaluation } from "@shared/evaluationAccess";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -56,9 +58,9 @@ async function startServer() {
       } catch {
         return res.status(401).send("<html><body style='font-family:sans-serif;padding:60px;text-align:center;'><h2>请先登录后再访问此页面</h2></body></html>");
       }
-      // 权限验证
+      // 权限验证：用 hasAnyRole 而不是比较 user.role —— 否则附加角色（extraRoles）不起作用
       const allowedRoles = ["graduate_admin", "admin", "college_secretary", "supervisor_expert", "supervisor_leader"];
-      if (!allowedRoles.includes(user.role || "")) {
+      if (!hasAnyRole(user as any, allowedRoles)) {
         return res.status(403).send("<html><body style='font-family:sans-serif;padding:60px;text-align:center;'><h2>无权限访问</h2></body></html>");
       }
       const evalId = parseInt(req.params.id);
@@ -69,10 +71,13 @@ async function startServer() {
       if (!evaluation) {
         return res.status(404).send("<html><body style='font-family:sans-serif;padding:60px;text-align:center;'><h2>评价记录不存在</h2></body></html>");
       }
-      // 学院秘书只能查看本学院
+      // 与 tRPC 的列表/详情共用同一条判定（shared/evaluationAccess.ts）。
+      // 此前这里是「只拦学院秘书、且学院名字符串全等」：
+      //   - 督导专家只要知道别人的评价 ID 就能打印出来
+      //   - 「法学院（知识产权学院）」这类别名会被判成不同学院
       const course = await getCourseById(evaluation.courseId);
-      if (user.role === "college_secretary" && course?.college !== user.college) {
-        return res.status(403).send("<html><body style='font-family:sans-serif;padding:60px;text-align:center;'><h2>无权限查看其他学院的评价</h2></body></html>");
+      if (!canViewEvaluation(user as any, evaluation, course)) {
+        return res.status(403).send("<html><body style='font-family:sans-serif;padding:60px;text-align:center;'><h2>无权限查看该评价</h2></body></html>");
       }
       const allUsers = await getAllUsers();
       const supervisor = allUsers.find((u) => u.id === evaluation.supervisorId);

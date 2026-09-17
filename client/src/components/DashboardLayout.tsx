@@ -57,25 +57,43 @@ import { Label } from "@/components/ui/label";
 import { KeyRound, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
-// 根据角色返回导航菜单
-function getMenuItems(role: string) {
+/**
+ * 根据当前身份返回导航菜单。
+ *
+ * 之前是一串 if / else if，而 "admin" 同时出现在第一个和第三个分支里 ——
+ * 系统管理员被第一个分支接住，后面的管理菜单永远轮不到，于是看不到
+ * 用户管理、统计仪表盘、上传课程数据。这里改成按能力分别判断，
+ * admin 既拿督导菜单也拿管理菜单。
+ *
+ * 传入的是身份切换器里的当前身份（activeRole），不是主角色 ——
+ * 附加角色通过切换身份生效。
+ */
+export function getMenuItems(role: string) {
   const base = [
     { icon: LayoutDashboard, label: "工作台", path: "/", key: "home" },
     { icon: BookOpen, label: "全校课程", path: "/courses", key: "courses" },
   ];
 
-  if (["supervisor_expert", "supervisor_leader", "admin"].includes(role)) {
+  const canSupervise = ["supervisor_expert", "supervisor_leader", "admin"].includes(role);
+  const canAdminister = ["graduate_admin", "admin"].includes(role);
+  const isSecretary = role === "college_secretary";
+
+  if (canSupervise) {
     base.push({ icon: ClipboardList, label: "听课计划", path: "/plans", key: "plans" });
-    base.push({ icon: ClipboardCheck, label: "评价记录", path: "/evaluations", key: "evaluations-expert" });
-  } else if (role === "college_secretary") {
+  }
+
+  if (isSecretary) {
     base.push({ icon: ClipboardCheck, label: "督导评价", path: "/evaluations", key: "evaluations-secretary" });
     base.push({ icon: BarChart2, label: "评价进度", path: "/course-progress", key: "course-progress-secretary" });
-  } else if (["graduate_admin", "admin"].includes(role)) {
+  } else if (canAdminister) {
+    // 「全部评价」已经涵盖「评价记录」，同一个 /evaluations 不重复列两次
     base.push({ icon: ClipboardCheck, label: "全部评价", path: "/evaluations", key: "evaluations-admin" });
     base.push({ icon: BarChart2, label: "评价进度", path: "/course-progress", key: "course-progress-admin" });
     base.push({ icon: Building2, label: "统计仪表盘", path: "/admin", key: "admin" });
     base.push({ icon: Users, label: "用户管理", path: "/users", key: "users" });
     base.push({ icon: UploadCloud, label: "上传课程数据", path: "/upload-courses", key: "upload-courses" });
+  } else if (canSupervise) {
+    base.push({ icon: ClipboardCheck, label: "评价记录", path: "/evaluations", key: "evaluations-expert" });
   }
 
   return base;

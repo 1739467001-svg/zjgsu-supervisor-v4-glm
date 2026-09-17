@@ -20,6 +20,7 @@ export default defineConfig({
       "shared/**/*.test.ts",
       "shared/**/*.spec.ts",
       "scripts/**/*.test.ts",
+      "client/src/**/*.test.ts",
     ],
   },
 });

@@ -450,6 +450,14 @@ export async function getListeningPlansBySupervisor(supervisorId: number, semest
   }));
 }
 
+/** 按 id 取听课计划，用于改动前校验归属人 */
+export async function getListeningPlanById(planId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(listeningPlans).where(eq(listeningPlans.id, planId)).limit(1);
+  return rows[0] || null;
+}
+
 export async function updateListeningPlanStatus(planId: number, status: "pending" | "completed" | "cancelled") {
   const db = await getDb();
   if (!db) return;
@@ -729,6 +737,14 @@ export async function getNotificationsByUser(userId: number) {
     .where(eq(notifications.recipientId, userId))
     .orderBy(desc(notifications.createdAt))
     .limit(50);
+}
+
+/** 按 id 取通知，用于标记已读前校验收件人 */
+export async function getNotificationById(notificationId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(notifications).where(eq(notifications.id, notificationId)).limit(1);
+  return rows[0] || null;
 }
 
 export async function markNotificationRead(notificationId: number) {

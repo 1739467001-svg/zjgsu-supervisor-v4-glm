@@ -23,6 +23,7 @@ import { courses } from "../drizzle/schema";
 import { sql, eq, and, isNull, or, inArray } from "drizzle-orm";
 import { sdk } from "./_core/sdk";
 import { parseCourseWorkbook, mergeDuplicateCourses, courseKey } from "./courseImport";
+import { hasAnyRole } from "@shared/roles";
 
 const router = Router();
 
@@ -49,7 +50,8 @@ router.post(
     // 权限验证：仅 graduate_admin 和 admin 可访问
     try {
       const user = await sdk.authenticateRequest(req);
-      if (!["graduate_admin", "admin"].includes(user.role || "")) {
+      // hasAnyRole：否则「主角色普通用户 + 附加角色研究生院主管」会被挡在外面
+      if (!hasAnyRole(user as any, ["graduate_admin", "admin"])) {
         return res.status(403).json({
           success: false,
           message: "权限不足，仅研究生院主管可上传课程数据",
