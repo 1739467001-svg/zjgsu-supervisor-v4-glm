@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useLocation } from "wouter";
 import { Search, Eye, Star, Building2, BookOpen, CheckCircle, ChevronRight, BarChart3, Clock } from "lucide-react";
 import { formatDateBJ } from "@shared/dateUtils";
+import { hasAnyRole } from "@shared/roles";
 
 export default function CollegeWorkbench() {
   const { user } = useAuth();
@@ -15,9 +16,11 @@ export default function CollegeWorkbench() {
   const [weekdayFilter, setWeekdayFilter] = useState("all");
 
   const { data: stats, isLoading } = trpc.stats.collegeStats.useQuery({});
+  // hasAnyRole 而不是直接比较主角色：否则「主角色普通用户 + 附加角色学院教学秘书」
+  // 后端放行了，前端却不发这个请求，页面上的进度卡片是空的
   const { data: progressSummary } = trpc.stats.courseProgress.useQuery(
     {},
-    { enabled: user?.role === "college_secretary" }
+    { enabled: hasAnyRole(user as any, ["college_secretary"]) }
   );
 
   const evaluations = (stats?.evaluations || []) as any[];
