@@ -181,6 +181,23 @@ export async function getActiveSemester() {
  * semesterId 为空的是尚未归档的历史数据，一并视为当前学期 ——
  * 否则管理员一旦设了当前学期、却还没跑课表导入，全校课程会瞬间变成 0 条。
  */
+/**
+ * 统计口径里「只看当前学期的评价」。
+ *
+ * 与课程那个过滤器有个关键差别：课程用 or(eq, isNull) 把没有学期标记的旧课
+ * 也算进当前学期（它们是升级前就存在的，不这样处理会凭空少一批课）；
+ * 评价这里则是严格 eq —— 评价从 semesterId 字段上线那天起就都会带上学期，
+ * 把 NULL 也算进来等于把历年评价全倒进本学期的统计里，
+ * 那正是仪表盘数字对不上的原因。
+ *
+ * 没有设置当前学期时返回 undefined（不加条件），与课程侧保持一致。
+ */
+export async function currentSemesterEvaluationFilter() {
+  const active = await getActiveSemester();
+  if (!active) return undefined;
+  return eq(courseEvaluations.semesterId, active.id);
+}
+
 export async function currentSemesterCourseFilter() {
   const active = await getActiveSemester();
   if (!active) return undefined;
@@ -618,6 +635,13 @@ export async function getAdminStats() {
   const db = await getDb();
   if (!db) return null;
 
+  // 仪表盘的所有评价口径都限定在当前学期：课程总数已经只数当前学期，
+  // 评价却不过滤的话，换学期后旧评价会混进新学期的统计，两个数字互相对不上。
+  const semesterFilter = await currentSemesterEvaluationFilter();
+  const submittedThisSemester = semesterFilter
+    ? and(eq(courseEvaluations.status, "submitted"), semesterFilter)
+    : eq(courseEvaluations.status, "submitted");
+
   const [
     totalCourses,
     totalEvaluations,
@@ -631,7 +655,7 @@ export async function getAdminStats() {
     // 否则归档的上学期课程会让这个数字比课程列表多出一截
     db.select({ count: sql<number>`count(*)` }).from(courses).where(await currentSemesterCourseFilter()),
     // 总评价数
-    db.select({ count: sql<number>`count(*)` }).from(courseEvaluations).where(eq(courseEvaluations.status, "submitted")),
+    db.select({ count: sql<number>`count(*)` }).from(courseEvaluations).where(submittedThisSemester),
     // 督导专家数
     db.select({ count: sql<number>`count(*)` }).from(users).where(inArray(users.role, ["supervisor_expert", "supervisor_leader"] as any[])),
     // 各学院统计：评价次数与平均分必须出自同一次聚合。
@@ -652,7 +676,7 @@ export async function getAdminStats() {
       })
       .from(courseEvaluations)
       .leftJoin(courses, eq(courseEvaluations.courseId, courses.id))
-      .where(eq(courseEvaluations.status, "submitted"))
+      .where(submittedThisSemester)
       .groupBy(sql`COALESCE(${courses.college}, '未知学院（原课程已变更）')`)
       .orderBy(desc(sql`count(*)`)),
     // 按星期分布
@@ -663,13 +687,13 @@ export async function getAdminStats() {
       })
       .from(courseEvaluations)
       .leftJoin(courses, eq(courseEvaluations.courseId, courses.id))
-      .where(eq(courseEvaluations.status, "submitted"))
+      .where(submittedThisSemester)
       .groupBy(courses.weekday),
     // 最近评价
     db
       .select()
       .from(courseEvaluations)
-      .where(eq(courseEvaluations.status, "submitted"))
+      .where(submittedThisSemester)
       .orderBy(desc(courseEvaluations.createdAt))
       .limit(10),
     // 最活跃督导专家
@@ -679,7 +703,7 @@ export async function getAdminStats() {
         count: sql<number>`count(*)`,
       })
       .from(courseEvaluations)
-      .where(eq(courseEvaluations.status, "submitted"))
+      .where(submittedThisSemester)
       .groupBy(courseEvaluations.supervisorId)
       .orderBy(desc(sql`count(*)`))
       .limit(10),
