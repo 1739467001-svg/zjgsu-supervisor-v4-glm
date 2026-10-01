@@ -10,6 +10,7 @@ import {
   createEvaluation,
   createSemester,
   getActiveSemester,
+  getSemesterById,
   listSemesters,
   setActiveSemester,
   updateSemester,
@@ -48,6 +49,7 @@ import {
   upsertUser,
 } from "./db";
 import { canViewEvaluation, canMutateListeningPlan } from "@shared/evaluationAccess";
+import { isWritableSemester } from "@shared/semesterArchive";
 import { sdk } from "./_core/sdk";
 import { generateEvaluationExcel, generateEvaluationPdfHtml, generateEvaluationPdfBuffer } from "./exportUtils";
 
@@ -74,6 +76,20 @@ const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   }
   return next({ ctx });
 });
+
+const semesterInput = z.object({ semesterId: z.number().int().positive().optional() }).optional();
+async function selectedSemesterId(id?: number) {
+  const semester = id == null ? await getActiveSemester() : await getSemesterById(id);
+  if (!semester) throw new TRPCError({ code: "BAD_REQUEST", message: "请选择已建立档案的学期" });
+  return semester.id;
+}
+async function requireCurrentSemester(recordId: number | null | undefined) {
+  const active = await getActiveSemester();
+  if (!isWritableSemester(recordId, active?.id)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "历史学期档案只读，不允许新增、修改或删除；请返回当前学期" });
+  }
+  return active!.id;
+}
 
 // ============================================================
 // 评价表单 Zod Schema
@@ -204,6 +220,7 @@ export const appRouter = router({
           courseName: z.string().optional(),
           page: z.number().default(1),
           pageSize: z.number().default(20),
+          semesterId: z.number().int().positive().optional(),
         })
       )
       .query(async ({ input, ctx }) => {
@@ -211,7 +228,7 @@ export const appRouter = router({
         const user = ctx.user!;
         const scopedCollege = getScopedCollege(user);
         const college = scopedCollege || input.college;
-        return getCourses({ ...input, college });
+        return getCourses({ ...input, college, semesterId: await selectedSemesterId(input.semesterId) });
       }),
 
     getById: protectedProcedure.input(z.number()).query(async ({ input }) => {
@@ -220,15 +237,15 @@ export const appRouter = router({
       return course || null;
     }),
 
-    getColleges: protectedProcedure.query(async () => {
-      const colleges = await getDistinctColleges();
+    getColleges: protectedProcedure.input(semesterInput).query(async ({ input }) => {
+      const colleges = await getDistinctColleges(await selectedSemesterId(input?.semesterId));
       return colleges || [];
     }),
 
     getTeachers: protectedProcedure
-      .input(z.object({ college: z.string().optional() }))
+      .input(z.object({ college: z.string().optional(), semesterId: z.number().int().positive().optional() }))
       .query(async ({ input }) => {
-        const teachers = await getDistinctTeachers(input.college);
+        const teachers = await getDistinctTeachers(input.college, await selectedSemesterId(input.semesterId));
         return teachers || [];
       }),
   }),
@@ -249,6 +266,7 @@ export const appRouter = router({
         const course = await ensureCourseExists(input.courseId);
         ensureCourseInScope(ctx.user!, course);
         const activeSemester = await getActiveSemester();
+        await requireCurrentSemester(course.semesterId);
         return createListeningPlan({
           supervisorId: ctx.user!.id,
           courseId: input.courseId,
@@ -259,10 +277,9 @@ export const appRouter = router({
         });
       }),
 
-    myPlans: supervisorProcedure.query(async ({ ctx }) => {
+    myPlans: supervisorProcedure.input(semesterInput).query(async ({ ctx, input }) => {
       // 只返回当前学期的计划，避免混入往期遗留
-      const activeSemester = await getActiveSemester();
-      return getListeningPlansBySupervisor(ctx.user!.id, activeSemester?.id);
+      return getListeningPlansBySupervisor(ctx.user!.id, await selectedSemesterId(input?.semesterId));
     }),
 
     updateStatus: supervisorProcedure
@@ -272,6 +289,7 @@ export const appRouter = router({
         const plan = await getListeningPlanById(input.planId);
         if (!plan) throw new TRPCError({ code: "NOT_FOUND" });
         if (!canMutateListeningPlan(ctx.user, plan)) throw new TRPCError({ code: "FORBIDDEN" });
+        await requireCurrentSemester(plan.semesterId);
         await updateListeningPlanStatus(input.planId, input.status);
         return { success: true };
       }),
@@ -280,6 +298,7 @@ export const appRouter = router({
       const plan = await getListeningPlanById(input);
       if (!plan) throw new TRPCError({ code: "NOT_FOUND" });
       if (!canMutateListeningPlan(ctx.user, plan)) throw new TRPCError({ code: "FORBIDDEN" });
+      await requireCurrentSemester(plan.semesterId);
       await deleteListeningPlan(input);
       return { success: true };
     }),
@@ -299,6 +318,7 @@ export const appRouter = router({
       ensureCourseInScope(ctx.user!, course);
 
       const activeSemester = await getActiveSemester();
+      await requireCurrentSemester(course.semesterId);
       const evaluation = await createEvaluation({
         ...input,
         supervisorId: ctx.user!.id,
@@ -359,7 +379,9 @@ export const appRouter = router({
         }
         const course = await ensureCourseExists(input.data.courseId);
         ensureCourseInScope(ctx.user!, course);
-
+        await requireCurrentSemester(existing.semesterId);
+        await requireCurrentSemester(course.semesterId);
+        if (existing.courseId !== input.data.courseId) throw new TRPCError({ code: "BAD_REQUEST", message: "不能改变评价关联的原课程" });
         await updateEvaluation(input.id, {
           ...input.data,
           listenDate: input.data.listenDate ? new Date(input.data.listenDate) : undefined,
@@ -385,6 +407,7 @@ export const appRouter = router({
       if (existing.supervisorId !== ctx.user!.id && !hasAnyRole(ctx.user, ["graduate_admin", "admin"])) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
+      await requireCurrentSemester(existing.semesterId);
       await deleteEvaluation(input);
       return { success: true };
     }),
@@ -406,35 +429,37 @@ export const appRouter = router({
       return { ...evaluation, course, supervisor };
     }),
 
-    myEvaluations: supervisorProcedure.query(async ({ ctx }) => {
-      return getEvaluationsBySupervisor(ctx.user!.id);
+    myEvaluations: supervisorProcedure.input(semesterInput).query(async ({ ctx, input }) => {
+      return getEvaluationsBySupervisor(ctx.user!.id, await selectedSemesterId(input?.semesterId));
     }),
 
     // 督导组长/主管/学院秘书查看所有评价（院级范围自动限定本学院）；督导专家（无更高角色）只能查看自己的评价，
     // 注意：督导专家即使设置了学院范围（院级督导）也只影响其"可听课/评价哪些课程"，不代表可以查看其他人的评价记录
     allEvaluations: protectedProcedure
-      .input(z.object({ college: z.string().optional(), supervisorId: z.number().optional() }))
+      .input(z.object({ college: z.string().optional(), supervisorId: z.number().optional(), semesterId: z.number().int().positive().optional() }))
       .query(async ({ input, ctx }) => {
         const user = ctx.user!;
         const canViewAll = hasAnyRole(user, ["supervisor_leader", "college_secretary", "graduate_admin", "admin"]);
+        const semesterId = await selectedSemesterId(input.semesterId);
         if (!canViewAll) {
-          return getEvaluationsBySupervisor(user.id);
+          return getEvaluationsBySupervisor(user.id, semesterId);
         }
         const scopedCollege = getScopedCollege(user);
-        return getAllEvaluations({ ...input, college: scopedCollege || input.college });
+        return getAllEvaluations({ ...input, college: scopedCollege || input.college, semesterId });
       }),
 
     exportToExcel: protectedProcedure
-      .input(z.object({ college: z.string().optional() }))
+      .input(z.object({ college: z.string().optional(), semesterId: z.number().int().positive().optional() }))
       .mutation(async ({ input, ctx }) => {
         const user = ctx.user!;
         const canViewAll = hasAnyRole(user, ["supervisor_leader", "college_secretary", "graduate_admin", "admin"]);
+        const semesterId = await selectedSemesterId(input.semesterId);
         let evaluations;
         if (canViewAll) {
           const scopedCollege = getScopedCollege(user);
-          evaluations = await getAllEvaluations({ college: scopedCollege || input.college });
+          evaluations = await getAllEvaluations({ college: scopedCollege || input.college, semesterId });
         } else if (hasAnyRole(user, ["supervisor_expert"])) {
-          evaluations = await getEvaluationsBySupervisor(user.id);
+          evaluations = await getEvaluationsBySupervisor(user.id, semesterId);
         } else {
           throw new TRPCError({ code: "FORBIDDEN" });
         }
@@ -450,11 +475,11 @@ export const appRouter = router({
 
         const buffer = generateEvaluationExcel(enrichedEvaluations);
         const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-        return { buffer: buffer.toString("base64"), filename: `evaluations_${todayStr}.xlsx` };
+        return { buffer: buffer.toString("base64"), filename: `evaluations_semester-${semesterId}_${todayStr}.xlsx` };
       }),
 
     exportToPdf: protectedProcedure
-      .input(z.object({ college: z.string().optional() }))
+      .input(z.object({ college: z.string().optional(), semesterId: z.number().int().positive().optional() }))
       .mutation(async ({ input, ctx }) => {
         const user = ctx.user!;
         // 权限：研究生院主管/admin/督导组长 可导出全部，学院教学秘书/院级督导只能导出本学院，校级以外的督导专家只能导出本人记录
@@ -463,12 +488,13 @@ export const appRouter = router({
         }
 
         const canViewAll = hasAnyRole(user, ["supervisor_leader", "college_secretary", "graduate_admin", "admin"]);
+        const semesterId = await selectedSemesterId(input.semesterId);
         let evaluations;
         if (canViewAll) {
           const scopedCollege = getScopedCollege(user);
-          evaluations = await getAllEvaluations({ college: scopedCollege || input.college });
+          evaluations = await getAllEvaluations({ college: scopedCollege || input.college, semesterId });
         } else {
-          evaluations = await getEvaluationsBySupervisor(user.id);
+          evaluations = await getEvaluationsBySupervisor(user.id, semesterId);
         }
 
         const allUsers = await getAllUsers();
@@ -482,7 +508,7 @@ export const appRouter = router({
 
         const pdfHtml = generateEvaluationPdfHtml(enrichedEvaluations);
         const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-        return { html: pdfHtml, filename: `evaluations_${todayStr}.pdf` };
+        return { html: pdfHtml, filename: `evaluations_semester-${semesterId}_${todayStr}.pdf` };
       }),
 
     // 单份评价导出（Excel）
@@ -495,16 +521,8 @@ export const appRouter = router({
         }
         const evaluation = await getEvaluationById(input.evalId);
         if (!evaluation) throw new TRPCError({ code: "NOT_FOUND", message: "评价记录不存在" });
-        if (!hasAnyRole(user, ["supervisor_leader", "graduate_admin", "admin"]) && evaluation.supervisorId !== user.id) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "只能导出本人的评价记录" });
-        }
         const course = await getCourseById(evaluation.courseId);
-        const scopedCollege = getScopedCollege(user);
-        if (scopedCollege && evaluation.supervisorId !== user.id) {
-          if (!isCollegeInScope(scopedCollege, course?.college)) {
-            throw new TRPCError({ code: "FORBIDDEN", message: "无权限导出其他学院的评价" });
-          }
-        }
+        if (!canViewEvaluation(user, evaluation, course)) throw new TRPCError({ code: "FORBIDDEN", message: "无权限导出该评价" });
         const allUsers = await getAllUsers();
         const supervisor = allUsers.find((u) => u.id === evaluation.supervisorId);
         const enriched = { ...evaluation, course, supervisor };
@@ -523,16 +541,8 @@ export const appRouter = router({
         }
         const evaluation = await getEvaluationById(input.evalId);
         if (!evaluation) throw new TRPCError({ code: "NOT_FOUND", message: "评价记录不存在" });
-        if (!hasAnyRole(user, ["supervisor_leader", "graduate_admin", "admin"]) && evaluation.supervisorId !== user.id) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "只能导出本人的评价记录" });
-        }
         const course = await getCourseById(evaluation.courseId);
-        const scopedCollege = getScopedCollege(user);
-        if (scopedCollege && evaluation.supervisorId !== user.id) {
-          if (!isCollegeInScope(scopedCollege, course?.college)) {
-            throw new TRPCError({ code: "FORBIDDEN", message: "无权限导出其他学院的评价" });
-          }
-        }
+        if (!canViewEvaluation(user, evaluation, course)) throw new TRPCError({ code: "FORBIDDEN", message: "无权限导出该评价" });
         const allUsers = await getAllUsers();
         const supervisor = allUsers.find((u) => u.id === evaluation.supervisorId);
         const enriched = { ...evaluation, course, supervisor };
@@ -546,11 +556,11 @@ export const appRouter = router({
   // 统计（研究生院主管）
   // ============================================================
    stats: router({
-    adminDashboard: adminProcedure.query(async () => {
-      return getAdminStats();
+    adminDashboard: adminProcedure.input(semesterInput).query(async ({ input }) => {
+      return getAdminStats(await selectedSemesterId(input?.semesterId));
     }),
     collegeStats: protectedProcedure
-      .input(z.object({ college: z.string().optional() }))
+      .input(z.object({ college: z.string().optional(), semesterId: z.number().int().positive().optional() }))
       .query(async ({ input, ctx }) => {
         const user = ctx.user!;
         // 此前这里没有任何角色门禁：任何登录用户不传 college 就能拿到全校所有评价。
@@ -560,7 +570,7 @@ export const appRouter = router({
         // 用 getScopedCollege 而不是直接比较主角色，附加角色与院级督导才会被认到
         const scopedCollege = getScopedCollege(user);
         const college = scopedCollege || input.college;
-        const evals = await getAllEvaluations({ college });
+        const evals = await getAllEvaluations({ college, semesterId: await selectedSemesterId(input.semesterId) });
         return {
           total: evals.length,
           submitted: evals.filter((e) => e.status === "submitted").length,
@@ -569,7 +579,7 @@ export const appRouter = router({
       }),
     // 课程评价进度（学院秘书查本学院，主管查指定学院）
     courseProgress: protectedProcedure
-      .input(z.object({ college: z.string().optional() }))
+      .input(z.object({ college: z.string().optional(), semesterId: z.number().int().positive().optional() }))
       .query(async ({ input, ctx }) => {
         const user = ctx.user!;
         // hasAnyRole / getScopedCollege 而不是直接比较 user.role：
@@ -578,15 +588,15 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN" });
         }
         const scopedCollege = getScopedCollege(user);
-        return getCourseEvaluationProgress(scopedCollege || input.college);
+        return getCourseEvaluationProgress(scopedCollege || input.college, await selectedSemesterId(input.semesterId));
       }),
     // 全校各学院评价进度汇总（研究生院主管专用）
-    allCollegeProgress: adminProcedure.query(async () => {
-      return getAllCollegeEvaluationProgress();
+    allCollegeProgress: adminProcedure.input(semesterInput).query(async ({ input }) => {
+      return getAllCollegeEvaluationProgress(await selectedSemesterId(input?.semesterId));
     }),
     // 全校课程总数（所有已登录用户可查）
-    courseCount: protectedProcedure.query(async () => {
-      const result = await getCourses({ page: 1, pageSize: 1 });
+    courseCount: protectedProcedure.input(semesterInput).query(async ({ input }) => {
+      const result = await getCourses({ page: 1, pageSize: 1, semesterId: await selectedSemesterId(input?.semesterId) });
       return { total: result.total };
     }),
   }),

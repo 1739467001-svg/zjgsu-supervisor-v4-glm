@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import SemesterSwitcher from "./SemesterSwitcher";
 import { useActiveRole } from "@/hooks/useActiveRole";
 import { ROLE_LABELS, getSupervisorScopeLabel, isSupervisorRole } from "@shared/roles";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -470,6 +471,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
           </div>
         )}
 
+        <SemesterSwitcher />
         <main className="flex-1 overflow-auto">{children}</main>
       </SidebarInset>
     </>

@@ -10,6 +10,8 @@ import { toast } from "sonner";
 import { useLocation, useParams } from "wouter";
 import { ChevronLeft, Save, Send, Star } from "lucide-react";
 import { useSemester } from "@/hooks/useSemester";
+import { useSemesterSelection } from "@/contexts/SemesterSelection";
+import { isWritableSemester } from "@shared/semesterArchive";
 import { calculateWeekFromDate, calculateDateRangeFromWeek, getMinSelectableDate, getMaxSelectableDate, isValidFutureDate, getTodayBJ, formatTimeBJ } from "@shared/dateUtils";
 import { parseStudentMajors, formatStudentMajor } from "@shared/studentMajor";
 
@@ -113,6 +115,8 @@ const EVALUATION_DIMENSIONS = {
 };
 
 export default function EvaluationForm() {
+  const { semesters, isHistorical } = useSemesterSelection();
+  const activeSemesterId = semesters.find(s => s.isActive)?.id;
   const [, navigate] = useLocation();
   const { courseId: courseIdStr } = useParams();
   // 学期起始日与周数来自服务端配置；加载完成前回退到默认值
@@ -181,6 +185,7 @@ export default function EvaluationForm() {
 
   const { data: course } = trpc.courses.getById.useQuery(courseId || 0, { enabled: !!isValidCourseId });
   const { data: existingEval } = trpc.evaluations.getById.useQuery(evalId || 0, { enabled: isEdit });
+  const archiveReadOnly = isHistorical || !isWritableSemester(isEdit ? existingEval?.semesterId : course?.semesterId, activeSemesterId);
 
   // 编辑模式下，用已有数据覆盖默认值
   const [hasLoadedEval, setHasLoadedEval] = useState(false);
@@ -326,7 +331,7 @@ export default function EvaluationForm() {
 
   // 自动保存草稿 - 每30秒保存一次
   useEffect(() => {
-    if (!isEdit) return;
+    if (!isEdit || archiveReadOnly) return;
     
     const autoSaveInterval = setInterval(() => {
       // 如果手动操作正在进行中，跳过自动保存
@@ -347,7 +352,7 @@ export default function EvaluationForm() {
     
     return () => clearInterval(autoSaveInterval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEdit, actualEvalId]);
+  }, [isEdit, actualEvalId, archiveReadOnly]);
 
   // 计算综合评分 - 所有20个定量指标的平均值
   const calculateOverallScore = (formData: typeof form): number | undefined => {
@@ -465,6 +470,8 @@ export default function EvaluationForm() {
   };
   const targetCourse = course || (existingEval as any)?.course;
   const studentMajors = parseStudentMajors(targetCourse?.studentMajor);
+
+  if (archiveReadOnly) return <DashboardLayout><div className="p-6"><h1 className="font-semibold">历史档案保护</h1><p className="text-sm my-3">仅可填写当前学期的课程评价。历史记录可查看和导出，不可修改。</p><Button variant="outline" onClick={() => navigate("/evaluations")}>返回评价记录</Button></div></DashboardLayout>;
 
   if (!isEdit && !isValidCourseId) {
     navigate('/evaluations', { replace: true });

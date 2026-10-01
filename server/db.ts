@@ -18,6 +18,7 @@ import {
   users,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { buildSemesterCollegeRows } from "../shared/semesterStats";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let _pool: any = null;
@@ -192,13 +193,15 @@ export async function getActiveSemester() {
  *
  * 没有设置当前学期时返回 undefined（不加条件），与课程侧保持一致。
  */
-export async function currentSemesterEvaluationFilter() {
+export async function currentSemesterEvaluationFilter(semesterId?: number) {
+  if (semesterId != null) return eq(courseEvaluations.semesterId, semesterId);
   const active = await getActiveSemester();
   if (!active) return undefined;
   return eq(courseEvaluations.semesterId, active.id);
 }
 
-export async function currentSemesterCourseFilter() {
+export async function currentSemesterCourseFilter(semesterId?: number) {
+  if (semesterId != null) return eq(courses.semesterId, semesterId);
   const active = await getActiveSemester();
   if (!active) return undefined;
   return or(eq(courses.semesterId, active.id), isNull(courses.semesterId));
@@ -242,9 +245,17 @@ export async function createSemester(data: InsertSemester) {
 /** 切换当前学期：先全部置为非当前，再单独启用目标学期，保证全表仅一条为 true */
 export async function setActiveSemester(id: number) {
   const db = await getDb();
-  if (!db) return;
-  await db.update(semesters).set({ isActive: false }).where(eq(semesters.isActive, true));
-  await db.update(semesters).set({ isActive: true }).where(eq(semesters.id, id));
+  if (!db) throw new Error("DB not available");
+  await db.transaction(async tx => {
+    const rows = await tx.select().from(semesters).orderBy(semesters.id).for("update");
+    const target = rows.find(s => s.id === id);
+    if (!target) throw new Error("学期不存在");
+    const active = rows.find(s => s.isActive);
+    if (active?.id === id) return;
+    if (active && target.startDate <= active.startDate) throw new Error("历史学期请使用查看学期入口，不可重新启用并修改档案");
+    await tx.update(semesters).set({ isActive: false }).where(eq(semesters.isActive, true));
+    await tx.update(semesters).set({ isActive: true }).where(eq(semesters.id, id));
+  });
 }
 
 export async function updateSemester(id: number, data: Partial<InsertSemester>) {
@@ -268,13 +279,14 @@ export async function getCourses(filters: {
   pageSize?: number;
   /** 传 false 可查全部学期（导出/核对历史数据用），默认只查当前学期 */
   currentSemesterOnly?: boolean;
+  semesterId?: number;
 }) {
   const db = await getDb();
   if (!db) return { data: [], total: 0 };
 
   const conditions = [];
   if (filters.currentSemesterOnly !== false) {
-    const semesterFilter = await currentSemesterCourseFilter();
+    const semesterFilter = await currentSemesterCourseFilter(filters.semesterId);
     if (semesterFilter) conditions.push(semesterFilter);
   }
   // 严格过滤：只有非空字符串才作为筛选条件
@@ -325,11 +337,11 @@ export async function getCoursesByCollege(college: string) {
   return db.select().from(courses).where(eq(courses.college, college)).orderBy(courses.courseName);
 }
 
-export async function getDistinctColleges() {
+export async function getDistinctColleges(semesterId?: number) {
   const db = await getDb();
   if (!db) return [];
   // 只列当前学期开课的学院，否则筛选框里会混进已归档学期才有的学院
-  const semesterFilter = await currentSemesterCourseFilter();
+  const semesterFilter = await currentSemesterCourseFilter(semesterId);
   const where = semesterFilter
     ? and(sql`${courses.college} != ''`, semesterFilter)
     : sql`${courses.college} != ''`;
@@ -341,10 +353,10 @@ export async function getDistinctColleges() {
   return result.map((r) => r.college).filter(Boolean);
 }
 
-export async function getDistinctTeachers(college?: string) {
+export async function getDistinctTeachers(college?: string, semesterId?: number) {
   const db = await getDb();
   if (!db) return [];
-  const semesterFilter = await currentSemesterCourseFilter();
+  const semesterFilter = await currentSemesterCourseFilter(semesterId);
   const parts = [
     ...(college ? [eq(courses.college, college)] : []),
     ...(semesterFilter ? [semesterFilter] : []),
@@ -631,13 +643,13 @@ async function enrichEvaluations(evals: CourseEvaluation[]) {
 // ============================================================
 // 统计相关（研究生院主管仪表盘）
 // ============================================================
-export async function getAdminStats() {
+export async function getAdminStats(semesterId?: number) {
   const db = await getDb();
   if (!db) return null;
 
   // 仪表盘的所有评价口径都限定在当前学期：课程总数已经只数当前学期，
   // 评价却不过滤的话，换学期后旧评价会混进新学期的统计，两个数字互相对不上。
-  const semesterFilter = await currentSemesterEvaluationFilter();
+  const semesterFilter = await currentSemesterEvaluationFilter(semesterId);
   const submittedThisSemester = semesterFilter
     ? and(eq(courseEvaluations.status, "submitted"), semesterFilter)
     : eq(courseEvaluations.status, "submitted");
@@ -653,7 +665,7 @@ export async function getAdminStats() {
   ] = await Promise.all([
     // 总课程数：与「全校课程」列表同口径，只数当前学期，
     // 否则归档的上学期课程会让这个数字比课程列表多出一截
-    db.select({ count: sql<number>`count(*)` }).from(courses).where(await currentSemesterCourseFilter()),
+    db.select({ count: sql<number>`count(*)` }).from(courses).where(await currentSemesterCourseFilter(semesterId)),
     // 总评价数
     db.select({ count: sql<number>`count(*)` }).from(courseEvaluations).where(submittedThisSemester),
     // 督导专家数
@@ -731,6 +743,7 @@ export async function getAdminStats() {
 
   return {
     totalCourses: Number(totalCourses[0]?.count || 0),
+    semesterColleges: buildSemesterCollegeRows(await getAllCollegeEvaluationProgress(semesterId), collegeRows),
     totalEvaluations: Number(totalEvaluations[0]?.count || 0),
     totalSupervisors: Number(totalSupervisors[0]?.count || 0),
     collegeStats: collegeRows,
@@ -801,14 +814,14 @@ export async function getUnreadNotificationCount(userId: number) {
  * 获取指定学院（或全部学院）的课程评价进度
  * 返回：每门课程的基本信息 + 是否已被评价 + 评价列表
  */
-export async function getCourseEvaluationProgress(college?: string) {
+export async function getCourseEvaluationProgress(college?: string, semesterId?: number) {
   const db = await getDb();
   if (!db) return [];
 
   // 构建课程查询条件
   const conditions = [];
   // 评价进度只看当前学期，否则上个学期的课会把覆盖率稀释成一个没意义的数字
-  const semesterFilter = await currentSemesterCourseFilter();
+  const semesterFilter = await currentSemesterCourseFilter(semesterId);
   if (semesterFilter) conditions.push(semesterFilter);
   if (college) {
     // 支持多学院字符串（顿号/逗号分隔）
@@ -844,7 +857,7 @@ export async function getCourseEvaluationProgress(college?: string) {
       createdAt: courseEvaluations.createdAt,
     })
     .from(courseEvaluations)
-    .where(and(inArray(courseEvaluations.courseId, courseIds), eq(courseEvaluations.status, "submitted")));
+    .where(and(inArray(courseEvaluations.courseId, courseIds), eq(courseEvaluations.status, "submitted"), await currentSemesterEvaluationFilter(semesterId)));
 
   // 获取督导专家信息
   const supervisorIds = Array.from(new Set(evaluatedRecords.map((e) => e.supervisorId)));
@@ -877,14 +890,14 @@ export async function getCourseEvaluationProgress(college?: string) {
 /**
  * 获取全校各学院的课程评价进度汇总（研究生院主管用）
  */
-export async function getAllCollegeEvaluationProgress() {
+export async function getAllCollegeEvaluationProgress(semesterId?: number) {
   const db = await getDb();
   if (!db) return [];
 
   // 覆盖率只针对当前学期：把已归档的上学期课程算进分母，
   // 会让本学期的进度被稀释成一个没有意义的数字，学院名单里也会冒出
   // 只有归档数据才有的学院（如拆分前的「工商管理学院（MBA学院）」）
-  const semesterFilter = await currentSemesterCourseFilter();
+  const semesterFilter = await currentSemesterCourseFilter(semesterId);
 
   // 按学院统计课程总数
   const courseTotals = await db
@@ -908,7 +921,7 @@ export async function getAllCollegeEvaluationProgress() {
     .innerJoin(courses, eq(courseEvaluations.courseId, courses.id))
     .where(
       semesterFilter
-        ? and(eq(courseEvaluations.status, "submitted"), semesterFilter)
+        ? and(eq(courseEvaluations.status, "submitted"), semesterFilter, await currentSemesterEvaluationFilter(semesterId))
         : eq(courseEvaluations.status, "submitted")
     )
     .groupBy(courses.college);

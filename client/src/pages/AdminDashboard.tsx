@@ -1,185 +1,53 @@
 import DashboardLayout from "@/components/DashboardLayout";
-import SemesterSettings from "@/components/SemesterSettings";
 import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, LabelList, RadarChart, Radar, PolarGrid, PolarAngleAxis } from "recharts";
-import { TrendingUp, Users, BookOpen, CheckCircle, Eye, ChevronRight, BarChart3 } from "lucide-react";
-import { buildCollegeChartRows } from "@shared/dashboardCharts";
-import { CollegeCountChart, CollegeShareChart, CollegeScoreChart } from "@/components/CollegeCharts";
-
-const WEEKDAY_ORDER = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"];
+import { useSemesterSelection } from "@/contexts/SemesterSelection";
+import { SemesterCollegeChart } from "@/components/SemesterCollegeChart";
 
 export default function AdminDashboard() {
+  const { semesterId, label, isHistorical } = useSemesterSelection();
   const [, navigate] = useLocation();
-  const { data: stats, isLoading } = trpc.stats.adminDashboard.useQuery();
-  const { data: collegeProgressData } = trpc.stats.allCollegeProgress.useQuery();
-
-  if (isLoading) {
-    return (
-      <DashboardLayout>
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="flex flex-col items-center gap-3">
-            <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm text-muted-foreground">加载统计数据...</p>
-          </div>
-        </div>
-      </DashboardLayout>
-    );
-  }
-
-  if (!stats) return null;
-
-  const weekdayData = WEEKDAY_ORDER.map((day) => ({
-    name: day.replace("星期", ""),
-    count: stats.evalByWeekday.find((d) => d.weekday === day)?.count || 0,
-  }));
-
-  // 三张学院图表共用同一个数组（见 shared/dashboardCharts.ts）。
-  // 「学院数量一致」由构造保证，而不是靠三处代码各自小心地用同样的截断口径 ——
-  // 上一版就是数据源统一了、截断口径没统一，页面上仍然是 10 / 11 / 10。
-  const collegeRows = buildCollegeChartRows(stats.collegeStats);
-
-  return (
-    <DashboardLayout>
-      <div className="p-4 sm:p-6 space-y-6 page-transition">
-        <div>
-          <h1 className="text-xl font-bold" style={{ color: "oklch(0.18 0.025 240)" }}>研究生院督导统计</h1>
-          <p className="text-sm mt-0.5" style={{ color: "oklch(0.52 0.025 240)" }}>全校督导评价数据可视化分析</p>
-        </div>
-
-        {/* 核心指标 */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+  const { data: stats, isLoading, error, refetch } = trpc.stats.adminDashboard.useQuery({ semesterId });
+  const rows = stats?.semesterColleges ?? [];
+  const evaluated = rows.reduce((n, r) => n + r.evaluatedCourses, 0);
+  const scored = rows.reduce((n, r) => n + r.scoredCount, 0);
+  const scoreSum = rows.reduce((n, r) => n + (r.avgScore ?? 0) * r.scoredCount, 0);
+  const coverage = stats?.totalCourses ? evaluated / stats.totalCourses * 100 : null;
+  return <DashboardLayout>
+    <div className="p-4 sm:p-6 space-y-6 max-w-[1440px] mx-auto">
+      <header className="border-b border-slate-200 pb-5">
+        <p className="text-xs text-slate-500 tracking-wider">浙江工商大学 · 研究生院</p>
+        <h1 className="text-2xl font-semibold text-slate-900 mt-2">学期督导概览</h1>
+        <p className="mt-2 text-sm text-slate-600">{label} · {isHistorical ? "历史学期档案" : "当前学期"} · 只统计该学期已提交的评价，草稿保留在评价记录中。</p>
+      </header>
+      {isLoading ? <p role="status">正在加载所选学期数据…</p> : error || !stats ?
+        <div role="alert" className="rounded-lg border border-red-200 p-5"><p>统计数据加载失败，未将错误显示为 0。</p><button onClick={() => refetch()} className="underline mt-2">重新加载</button></div> : <>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {[
-            { label: "全校课程总数", value: stats.totalCourses, icon: <BookOpen className="w-5 h-5" />, color: "oklch(0.35 0.13 245)", bg: "oklch(0.93 0.018 240)" },
-            { label: "已完成督导评价", value: stats.totalEvaluations, icon: <CheckCircle className="w-5 h-5" />, color: "oklch(0.42 0.14 160)", bg: "oklch(0.93 0.018 160)" },
-            { label: "督导专家人数", value: stats.totalSupervisors, icon: <Users className="w-5 h-5" />, color: "oklch(0.52 0.16 200)", bg: "oklch(0.93 0.018 200)" },
-            { label: "已覆盖学院数", value: stats.collegeStats.length, icon: <TrendingUp className="w-5 h-5" />, color: "oklch(0.55 0.14 85)", bg: "oklch(0.95 0.02 85)" },
-          ].map((stat) => (
-            <div key={stat.label} className="bg-white rounded-xl p-5 relative overflow-hidden" style={{ border: "1px solid oklch(0.90 0.01 240)" }}>
-              <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: stat.color }} />
-              <div className="w-10 h-10 rounded-lg flex items-center justify-center mb-3" style={{ background: stat.bg, color: stat.color }}>
-                {stat.icon}
-              </div>
-              <div className="text-2xl font-bold" style={{ color: "oklch(0.18 0.025 240)" }}>{stat.value}</div>
-              <div className="text-xs mt-1" style={{ color: "oklch(0.52 0.025 240)" }}>{stat.label}</div>
-            </div>
-          ))}
+            ["课程总数", stats.totalCourses, `${rows.filter(r => r.totalCourses > 0).length} 个实际开课学院`],
+            ["已提交评价", stats.totalEvaluations, "次数不等于课程数，同一课程可多次评价"],
+            ["课程评价覆盖率", coverage === null ? "—" : `${coverage.toFixed(1)}%`, `${evaluated} / ${stats.totalCourses} 门课程已评价`],
+            ["整体平均评分", scored ? (scoreSum / scored).toFixed(2) : "—", `${scored} 条有效评分 · 满分 5 分`],
+          ].map(([title, value, note]) => <section key={String(title)} className="bg-white border border-slate-200 rounded-lg p-4 sm:p-5">
+            <h2 className="text-xs sm:text-sm text-slate-600">{title}</h2><p className="text-2xl sm:text-3xl font-semibold tabular-nums text-slate-900 mt-3">{value}</p><p className="text-xs text-slate-500 mt-2 leading-relaxed">{note}</p>
+          </section>)}
         </div>
-
-        {/* 图表区 */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {/* 各学院督导次数柱状图 */}
-          <div className="bg-white rounded-xl p-5" style={{ border: "1px solid oklch(0.90 0.01 240)" }}>
-            <h3 className="text-sm font-semibold mb-4" style={{ color: "oklch(0.18 0.025 240)" }}>各学院督导评价次数</h3>
-            <CollegeCountChart rows={collegeRows} />
-          </div>
-
-          {/* 学院占比饼图 */}
-          <div className="bg-white rounded-xl p-5" style={{ border: "1px solid oklch(0.90 0.01 240)" }}>
-            <h3 className="text-sm font-semibold mb-4" style={{ color: "oklch(0.18 0.025 240)" }}>督导评价学院分布</h3>
-            <CollegeShareChart rows={collegeRows} />
-          </div>
-
-          {/* 按星期分布 */}
-          <div className="bg-white rounded-xl p-5" style={{ border: "1px solid oklch(0.90 0.01 240)" }}>
-            <h3 className="text-sm font-semibold mb-4" style={{ color: "oklch(0.18 0.025 240)" }}>督导评价星期分布</h3>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={weekdayData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.93 0.006 240)" />
-                <XAxis dataKey="name" tick={{ fontSize: 11, fill: "oklch(0.52 0.025 240)" }} />
-                <YAxis tick={{ fontSize: 11, fill: "oklch(0.52 0.025 240)" }} />
-                <Tooltip formatter={(value) => [`${value} 次`, "督导次数"]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                <Bar dataKey="count" fill="oklch(0.52 0.16 200)" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* 各学院平均评分 */}
-          <div className="bg-white rounded-xl p-5" style={{ border: "1px solid oklch(0.90 0.01 240)" }}>
-            <h3 className="text-sm font-semibold mb-4" style={{ color: "oklch(0.18 0.025 240)" }}>各学院平均评分</h3>
-            <CollegeScoreChart rows={collegeRows} />
-          </div>
+        {stats.totalEvaluations === 0 && <p role="status" className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">该学期暂无已提交评价。零次数表示尚未评价，不代表零分；请用顶部学期选择器查看历史记录。</p>}
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+          <SemesterCollegeChart rows={rows} kind="coverage" />
+          <SemesterCollegeChart rows={rows} kind="count" />
+          <SemesterCollegeChart rows={rows} kind="score" />
         </div>
-
-        {/* 全校各学院评价进度 */}
-        <div className="bg-white rounded-xl p-5" style={{ border: "1px solid oklch(0.90 0.01 240)" }}>
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <BarChart3 className="w-5 h-5" style={{ color: "oklch(0.35 0.13 245)" }} />
-              <h3 className="text-sm font-semibold" style={{ color: "oklch(0.18 0.025 240)" }}>全校各学院课程评价进度</h3>
-            </div>
-            <button
-              onClick={() => navigate("/course-progress")}
-              className="flex items-center gap-1 text-xs hover:opacity-70 transition-opacity"
-              style={{ color: "oklch(0.35 0.13 245)" }}
-            >
-              查看详情 <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          {collegeProgressData && collegeProgressData.length > 0 ? (
-            <div className="space-y-2.5">
-              {collegeProgressData.map((item) => {
-                const pct = item.totalCourses > 0 ? Math.round((item.evaluatedCourses / item.totalCourses) * 100) : 0;
-                const barColor = pct >= 80 ? "oklch(0.55 0.15 160)" : pct >= 50 ? "oklch(0.55 0.15 245)" : "oklch(0.65 0.15 50)";
-                return (
-                  <div
-                    key={item.college}
-                    className="cursor-pointer hover:opacity-80 transition-opacity"
-                    onClick={() => navigate(`/course-progress?college=${encodeURIComponent(item.college)}`)}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-medium truncate max-w-[180px]" style={{ color: "oklch(0.25 0.025 240)" }}>
-                        {item.college}
-                      </span>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <span className="text-xs" style={{ color: "oklch(0.52 0.025 240)" }}>
-                          {item.evaluatedCourses}/{item.totalCourses}
-                        </span>
-                        <span className="text-xs font-bold w-8 text-right" style={{ color: barColor }}>{pct}%</span>
-                      </div>
-                    </div>
-                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "oklch(0.93 0.01 240)" }}>
-                      <div
-                        className="h-full rounded-full transition-all duration-500"
-                        style={{ width: `${pct}%`, background: barColor }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="flex items-center justify-center h-32" style={{ color: "oklch(0.65 0.02 240)" }}>
-              <p className="text-sm">暂无数据</p>
-            </div>
-          )}
-        </div>
-
-        {/* 最近评价 */}
-        {stats.recentEvals.length > 0 && (
-          <div className="bg-white rounded-xl p-5" style={{ border: "1px solid oklch(0.90 0.01 240)" }}>
-            <h3 className="text-sm font-semibold mb-4" style={{ color: "oklch(0.18 0.025 240)" }}>最近督导评价</h3>
-            <div className="space-y-2">
-              {stats.recentEvals.map((e: any) => (
-                <div key={e.id} className="flex items-center justify-between gap-3 p-3 rounded-lg cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate(`/evaluations/${e.id}`)}>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate" style={{ color: "oklch(0.20 0.025 240)" }}>{e.course?.courseName || "未知课程"}</p>
-                    <p className="text-xs mt-0.5" style={{ color: "oklch(0.52 0.025 240)" }}>
-                      {e.course?.teacher} · {e.supervisor?.name} · {e.course?.college?.slice(0, 8)}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {e.overallScore && (
-                      <span className="text-xs font-medium" style={{ color: "oklch(0.35 0.13 245)" }}>{(e.overallScore || 0).toFixed(1)}/5</span>
-                    )}
-                    <Eye className="w-4 h-4" style={{ color: "oklch(0.65 0.02 240)" }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </DashboardLayout>
-  );
+        <section className="bg-white rounded-lg border border-slate-200 p-4 sm:p-5">
+          <div className="flex flex-wrap justify-between gap-3 mb-3"><h2 className="font-semibold">学院数据明细</h2><div className="flex gap-4 text-sm text-blue-800"><button className="underline" onClick={() => navigate("/course-progress")}>查看课程覆盖明细</button><button className="underline" onClick={() => navigate("/evaluations")}>查看／导出评价记录</button></div></div>
+          <p className="text-xs text-slate-500 mb-4">学院名称沿用所选学期原始记录，不新增、不改名、不合并为“其他”。无评分显示“—”，不以 0 分代替。</p>
+          <div className="overflow-x-auto"><table className="w-full text-sm text-left min-w-[620px]"><caption className="sr-only">{label}学院督导统计明细</caption>
+            <thead className="border-b text-slate-500"><tr>{["学院", "课程数", "已评价课程", "覆盖率", "评价次数", "有效评分数", "平均评分"].map(t => <th key={t} scope="col" className="py-3 pr-4 font-medium">{t}</th>)}</tr></thead>
+            <tbody>{rows.map(r => <tr key={r.college} className="border-b border-slate-100"><th scope="row" className="py-3 pr-4 font-medium">{r.college}</th><td>{r.totalCourses}</td><td>{r.evaluatedCourses}</td><td>{r.coverage === null ? "—" : `${r.coverage.toFixed(1)}%`}</td><td>{r.evaluationCount}</td><td>{r.scoredCount}</td><td>{r.avgScore === null ? "—" : r.avgScore.toFixed(2)}</td></tr>)}</tbody>
+          </table></div>
+          {rows.length === 0 && <p className="py-6 text-sm text-slate-500">该学期暂无学院数据。</p>}
+        </section>
+      </>}
+    </div>
+  </DashboardLayout>;
 }

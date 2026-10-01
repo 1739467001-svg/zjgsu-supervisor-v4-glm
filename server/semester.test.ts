@@ -20,7 +20,7 @@ vi.mock("./db", () => ({
   createSemester: vi.fn().mockResolvedValue({ id: 8 }),
   setActiveSemester: vi.fn().mockResolvedValue(undefined),
   updateSemester: vi.fn().mockResolvedValue(undefined),
-  getCourseById: vi.fn().mockResolvedValue({ id: 1, college: "经济学院" }),
+  getCourseById: vi.fn().mockResolvedValue({ id: 1, college: "经济学院", semesterId: 7 }),
   createListeningPlan: vi.fn().mockResolvedValue({ id: 1 }),
   getListeningPlansBySupervisor: vi.fn().mockResolvedValue([]),
   createEvaluation: vi.fn().mockResolvedValue({ id: 1, planId: null }),
@@ -68,7 +68,7 @@ function ctx(user: Partial<any> = {}): TrpcContext {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(db.getActiveSemester).mockResolvedValue(ACTIVE_SEMESTER as any);
-  vi.mocked(db.getCourseById).mockResolvedValue({ id: 1, college: "经济学院" } as any);
+  vi.mocked(db.getCourseById).mockResolvedValue({ id: 1, college: "经济学院", semesterId: ACTIVE_SEMESTER.id } as any);
 });
 
 describe("新建记录打上当前学期标记", () => {
@@ -86,12 +86,10 @@ describe("新建记录打上当前学期标记", () => {
     );
   });
 
-  it("尚未配置任何学期时不阻断业务，semesterId 留空", async () => {
+  it("未建立学期档案时阻止产生无法归档的新记录", async () => {
     vi.mocked(db.getActiveSemester).mockResolvedValue(undefined as any);
-    await appRouter.createCaller(ctx()).plans.create({ courseId: 1 });
-    expect(db.createListeningPlan).toHaveBeenCalledWith(
-      expect.objectContaining({ semesterId: undefined })
-    );
+    await expect(appRouter.createCaller(ctx()).plans.create({ courseId: 1 })).rejects.toThrow("历史学期档案只读");
+    expect(db.createListeningPlan).not.toHaveBeenCalled();
   });
 });
 

@@ -8,6 +8,8 @@ import { formatDateOnlyBJ } from "@shared/dateUtils";
 import { hasAnyRole } from "@shared/roles";
 import { toast } from "sonner";
 import DashboardLayout from "@/components/DashboardLayout";
+import { useSemesterSelection } from "@/contexts/SemesterSelection";
+import { isWritableSemester, semesterLabel } from "@shared/semesterArchive";
 
 // 与 EvaluationForm 完全一致的评分维度定义
 const SCORE_SECTIONS = [
@@ -77,9 +79,11 @@ export default function EvaluationDetail() {
   const params = useParams();
   const [, navigate] = useLocation();
   const { user } = useAuth();
+  const { semesters } = useSemesterSelection();
   const evalId = parseInt(params.id || "0");
   const { data: evaluation, isLoading, error } = trpc.evaluations.getById.useQuery(evalId, { enabled: evalId > 0 });
-  const canEdit = hasAnyRole(user, ["supervisor_expert", "supervisor_leader", "graduate_admin", "admin"]) && evaluation?.supervisorId === user?.id;
+  const recordSemester = semesters.find(s => s.id === evaluation?.semesterId);
+  const canEdit = isWritableSemester(evaluation?.semesterId, semesters.find(s => s.isActive)?.id) && hasAnyRole(user, ["supervisor_expert", "supervisor_leader", "graduate_admin", "admin"]) && evaluation?.supervisorId === user?.id;
   const canExport =
     hasAnyRole(user, ["graduate_admin", "admin", "college_secretary", "supervisor_leader"]) ||
     (hasAnyRole(user, ["supervisor_expert"]) && evaluation?.supervisorId === user?.id);
@@ -164,6 +168,7 @@ export default function EvaluationDetail() {
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
+            <span className="text-xs text-muted-foreground">记录所属学期：{recordSemester ? semesterLabel(recordSemester) : "待核查"}{recordSemester && !recordSemester.isActive ? " · 历史只读" : ""}</span>
             {canEdit && (
               <Button size="sm" variant="outline" onClick={() => navigate(`/evaluations/${evalId}/edit`)}>
                 <Edit className="w-4 h-4 mr-1.5" />

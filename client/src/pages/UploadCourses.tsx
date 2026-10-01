@@ -1,6 +1,9 @@
 import { useState, useRef } from "react";
 import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import DashboardLayout from "@/components/DashboardLayout";
+import { useSemesterSelection } from "@/contexts/SemesterSelection";
+import { trpc } from "@/lib/trpc";
 
 interface UploadStats {
   total: number;
@@ -15,6 +18,8 @@ interface UploadResult {
 }
 
 export default function UploadCourses() {
+  const { semesterId, isHistorical } = useSemesterSelection();
+  const utils = trpc.useUtils();
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -39,12 +44,13 @@ export default function UploadCourses() {
   };
 
   const handleUpload = async () => {
-    if (!file) return;
+    if (!file || isHistorical) return;
     setUploading(true);
     setResult(null);
 
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("semesterId", String(semesterId));
 
     try {
       const res = await fetch("/api/upload-courses", {
@@ -55,6 +61,7 @@ export default function UploadCourses() {
       const data: UploadResult = await res.json();
       setResult(data);
       if (data.success) {
+        utils.invalidate();
         setFile(null);
         if (inputRef.current) inputRef.current.value = "";
       }
@@ -65,13 +72,14 @@ export default function UploadCourses() {
     }
   };
 
-  return (
+  if (isHistorical) return <DashboardLayout><p className="p-6">历史学期档案只读，不允许上传覆盖。请切换至当前学期。</p></DashboardLayout>;
+  return (<DashboardLayout>
     <div className="max-w-2xl mx-auto py-8 px-4">
       {/* 页面标题 */}
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900">上传课程数据</h1>
         <p className="text-sm text-gray-500 mt-1">
-          上传最新研究生课表 Excel 文件，系统将自动替换全部课程数据
+          上传当前学期课表，仅更新当前学期，历史档案保持不变
         </p>
       </div>
 
@@ -81,7 +89,7 @@ export default function UploadCourses() {
         <div className="text-sm text-blue-700 space-y-1">
           <p className="font-medium">操作说明</p>
           <p>• 支持格式：<strong>.xls</strong> 或 <strong>.xlsx</strong>（研究生排课信息表）</p>
-          <p>• 上传后将<strong>清空旧课程数据</strong>并导入新数据，操作不可撤销</p>
+          <p>• 按当前学期新增或更新课程；未出现在文件中的课程及历史评价仍保留，不清空。</p>
           <p>• 系统所有相关显示（课程列表、统计数字、评价进度等）将自动同步</p>
           <p>• 文件大小限制：20MB</p>
         </div>
@@ -201,5 +209,5 @@ export default function UploadCourses() {
         </div>
       )}
     </div>
-  );
+  </DashboardLayout>);
 }

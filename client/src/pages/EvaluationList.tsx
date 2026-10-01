@@ -17,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { hasAnyRole } from "@shared/roles";
+import { useSemesterSelection } from "@/contexts/SemesterSelection";
 
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   draft: { label: "草稿", color: "oklch(0.52 0.025 240)", bg: "oklch(0.93 0.01 240)" },
@@ -25,8 +26,9 @@ const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }
 
 export default function EvaluationList() {
   const { user } = useAuth();
+  const { semesterId, isHistorical } = useSemesterSelection();
   const [, navigate] = useLocation();
-  const canEdit = hasAnyRole(user, ["supervisor_expert", "supervisor_leader", "graduate_admin", "admin"]);
+  const canEdit = !isHistorical && hasAnyRole(user, ["supervisor_expert", "supervisor_leader", "graduate_admin", "admin"]);
   const canViewAll = hasAnyRole(user, ["supervisor_leader", "college_secretary", "graduate_admin", "admin"]);
   const canExport = hasAnyRole(user, ["graduate_admin", "admin", "college_secretary", "supervisor_leader", "supervisor_expert"]);
 
@@ -35,8 +37,8 @@ export default function EvaluationList() {
   const [collegeFilter, setCollegeFilter] = useState("all");
   const [exporting, setExporting] = useState(false);
 
-  const { data: evaluations, isLoading } = trpc.evaluations.allEvaluations.useQuery({});
-  const { data: colleges } = trpc.courses.getColleges.useQuery();
+  const { data: evaluations, isLoading } = trpc.evaluations.allEvaluations.useQuery({ semesterId });
+  const { data: colleges } = trpc.courses.getColleges.useQuery({ semesterId });
   const utils = trpc.useUtils();
 
   const deleteMutation = trpc.evaluations.delete.useMutation({
@@ -110,14 +112,14 @@ export default function EvaluationList() {
 
   const handleExportExcel = () => {
     setExporting(true);
-    const params: { college?: string } = {};
+    const params: { college?: string; semesterId: number } = { semesterId };
     if (collegeFilter !== "all") params.college = collegeFilter;
     exportExcelMutation.mutate(params);
   };
 
   const handleExportPdf = () => {
     setExporting(true);
-    const params: { college?: string } = {};
+    const params: { college?: string; semesterId: number } = { semesterId };
     if (collegeFilter !== "all") params.college = collegeFilter;
     exportPdfMutation.mutate(params);
   };

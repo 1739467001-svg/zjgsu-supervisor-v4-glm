@@ -11,7 +11,7 @@
  * - 用「学院+课程名+教师+星期+节次+教室」作为唯一标识
  * - 已存在的课程：保留原 ID，仅更新内容字段
  * - 新增课程：插入并分配新 ID
- * - 不再存在的课程：仅限当前学期内、且无关联评价/听课计划时才删除
+ * - 文件里未出现的课程仍保留，上传不承担清理历史数据的职责
  * - 其他学期（已归档）的课程一律不动
  * 这样可确保 course_evaluations 和 listening_plans 的 courseId 关联不断裂
  */
@@ -74,6 +74,9 @@ router.post(
 
       // ---- 解析（与命令行导入工具同一套解析器）----
       const active = await getActiveSemester();
+      if (!active || Number(req.body.semesterId) !== active.id) {
+        return res.status(400).json({ success: false, message: "仅可更新当前学期，请刷新页面后确认所选学期" });
+      }
       let parsed;
       try {
         parsed = parseCourseWorkbook(req.file.buffer, {
@@ -89,6 +92,9 @@ router.post(
 
       // key 相同的记录合并，周次取并集（真实课表里同一门课会按周次拆成多行）
       const { merged: newCourseData } = mergeDuplicateCourses(parsed.courses);
+      if (newCourseData.some(c => c.academicYear !== active.academicYear || c.semester !== active.name)) {
+        return res.status(400).json({ success: false, message: "课表所属学期与当前学期不一致，已停止，未修改任何数据" });
+      }
       if (newCourseData.length === 0) {
         return res
           .status(400)
@@ -107,9 +113,7 @@ router.post(
 
       // ---- UPSERT：严格限定在当前学期内 ----
       // 归档学期的课程绝不参与比对，更不会被当成「新课表里没有的课」删掉
-      const semesterScope = active
-        ? or(eq(courses.semesterId, active.id), isNull(courses.semesterId))!
-        : isNull(courses.semesterId);
+      const semesterScope = eq(courses.semesterId, active.id);
       const existingCourses = await db.select().from(courses).where(semesterScope);
 
       const existingKeyMap = new Map<string, number>();
@@ -132,19 +136,7 @@ router.post(
       // 当前学期内、新课表里已不存在的课程
       const toDeleteIds = existingCourses.map((c) => c.id).filter((id) => !matchedIds.has(id));
 
-      // 有评价或听课计划关联的一律保留，避免历史数据断链
-      let safeToDeleteIds: number[] = toDeleteIds;
-      if (toDeleteIds.length > 0) {
-        const linked = (await db.execute(
-          sql`SELECT DISTINCT courseId FROM course_evaluations WHERE courseId IN ${toDeleteIds}
-              UNION SELECT DISTINCT courseId FROM listening_plans WHERE courseId IN ${toDeleteIds}`
-        )) as any;
-        const rows = Array.isArray(linked) ? linked[0] : linked;
-        const linkedIds = new Set<number>(
-          Array.isArray(rows) ? rows.map((r: any) => Number(r.courseId)) : []
-        );
-        safeToDeleteIds = toDeleteIds.filter((id) => !linkedIds.has(id));
-      }
+      // 不删除任何课程。两份课表分次上传，也不会把另一份的课程清空。
 
       const semesterId = active?.id ?? null;
 
@@ -164,9 +156,6 @@ router.post(
         }
       }
 
-      if (safeToDeleteIds.length > 0) {
-        await db.delete(courses).where(inArray(courses.id, safeToDeleteIds));
-      }
 
       // 统计的是当前学期的课程数，与「全校课程」列表口径一致
       const [finalStats] = await db
@@ -189,8 +178,8 @@ router.post(
           colleges: Number(finalStats?.colleges ?? collegeSet.size),
           updated: toUpdate.length,
           inserted: toInsert.length,
-          deleted: safeToDeleteIds.length,
-          preserved: toDeleteIds.length - safeToDeleteIds.length,
+          deleted: 0,
+          preserved: toDeleteIds.length,
         },
       });
     } catch (err: any) {

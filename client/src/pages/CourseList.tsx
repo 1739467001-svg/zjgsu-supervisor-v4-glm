@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label";
 import { hasAnyRole } from "@shared/roles";
 import { useSemester } from "@/hooks/useSemester";
+import { useSemesterSelection } from "@/contexts/SemesterSelection";
 
 const WEEKDAYS = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"];
 const CAMPUSES = ["下沙", "教工路"];
@@ -29,8 +30,9 @@ const DEFAULT_FILTERS = {
 
 export default function CourseList() {
   const { user } = useAuth();
-  const { weeks: WEEKS } = useSemester();
-  const canAddPlan = hasAnyRole(user, ["supervisor_expert", "supervisor_leader", "graduate_admin", "admin"]);
+  const { semesterId, semester, isHistorical } = useSemesterSelection();
+  const WEEKS = Array.from({ length: semester.totalWeeks }, (_, i) => i + 1);
+  const canAddPlan = !isHistorical && hasAnyRole(user, ["supervisor_expert", "supervisor_leader", "graduate_admin", "admin"]);
 
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
   const [planDialog, setPlanDialog] = useState<{ open: boolean; courseId?: number; courseName?: string }>({ open: false });
@@ -49,6 +51,7 @@ export default function CourseList() {
     const params: Record<string, any> = {
       page: filters.page,
       pageSize: filters.pageSize,
+      semesterId,
     };
     if (filters.college) params.college = filters.college;
     if (filters.campus) params.campus = filters.campus;
@@ -57,10 +60,10 @@ export default function CourseList() {
     if (filters.teacher.trim()) params.teacher = filters.teacher.trim();
     if (filters.courseName.trim()) params.courseName = filters.courseName.trim();
     return params;
-  }, [filters]);
+  }, [filters, semesterId]);
 
   const { data: coursesData, isLoading } = trpc.courses.list.useQuery(queryParams as any);
-  const { data: colleges } = trpc.courses.getColleges.useQuery();
+  const { data: colleges } = trpc.courses.getColleges.useQuery({ semesterId });
   const utils = trpc.useUtils();
 
   const addPlanMutation = trpc.plans.create.useMutation({

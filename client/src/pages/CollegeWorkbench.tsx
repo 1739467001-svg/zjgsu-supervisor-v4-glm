@@ -8,18 +8,20 @@ import { useLocation } from "wouter";
 import { Search, Eye, Star, Building2, BookOpen, CheckCircle, ChevronRight, BarChart3, Clock } from "lucide-react";
 import { formatDateBJ } from "@shared/dateUtils";
 import { hasAnyRole } from "@shared/roles";
+import { useSemesterSelection } from "@/contexts/SemesterSelection";
 
 export default function CollegeWorkbench() {
   const { user } = useAuth();
+  const { semesterId } = useSemesterSelection();
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
   const [weekdayFilter, setWeekdayFilter] = useState("all");
 
-  const { data: stats, isLoading } = trpc.stats.collegeStats.useQuery({});
+  const { data: stats, isLoading } = trpc.stats.collegeStats.useQuery({ semesterId });
   // hasAnyRole 而不是直接比较主角色：否则「主角色普通用户 + 附加角色学院教学秘书」
   // 后端放行了，前端却不发这个请求，页面上的进度卡片是空的
   const { data: progressSummary } = trpc.stats.courseProgress.useQuery(
-    {},
+    { semesterId },
     { enabled: hasAnyRole(user as any, ["college_secretary"]) }
   );
 

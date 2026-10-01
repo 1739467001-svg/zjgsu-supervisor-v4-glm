@@ -19,6 +19,7 @@ import {
 import { useLocation } from "wouter";
 import PlanCalendarView from "@/components/PlanCalendarView";
 import { formatDateBJ } from "@shared/dateUtils";
+import { useSemesterSelection } from "@/contexts/SemesterSelection";
 
 const STATUS_MAP = {
   pending: {
@@ -39,12 +40,13 @@ const STATUS_MAP = {
 };
 
 export default function MyPlans() {
+  const { semesterId, isHistorical } = useSemesterSelection();
   const [, navigate] = useLocation();
   const [activeTab, setActiveTab] = useState<"pending" | "completed" | "cancelled" | "all">("pending");
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
   const utils = trpc.useUtils();
 
-  const { data: plans, isLoading } = trpc.plans.myPlans.useQuery();
+  const { data: plans, isLoading } = trpc.plans.myPlans.useQuery({ semesterId });
 
   const updateStatusMutation = trpc.plans.updateStatus.useMutation({
     onSuccess: () => {
@@ -338,7 +340,7 @@ export default function MyPlans() {
 
                         {/* 操作按钮 */}
                         <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0 flex-wrap justify-end">
-                          {plan.status === "pending" && (
+                          {plan.status === "pending" && !isHistorical && (
                             <Button
                               size="sm"
                               className="h-8 px-2 sm:px-3 text-xs gap-1"
@@ -373,6 +375,7 @@ export default function MyPlans() {
                             variant="ghost"
                             className="h-8 px-2 sm:px-3 gap-1 text-xs text-destructive hover:text-destructive"
                             title="删除听课计划"
+                            disabled={isHistorical}
                             onClick={() => deleteMutation.mutate(plan.id)}
                           >
                             <Trash2 className="w-3.5 h-3.5" />

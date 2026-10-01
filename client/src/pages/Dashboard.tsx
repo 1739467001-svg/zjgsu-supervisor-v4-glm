@@ -5,6 +5,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { BookOpen, ClipboardList, CheckCircle, Bell, TrendingUp, Users, Building2, Calendar } from "lucide-react";
 import { useLocation } from "wouter";
+import { useSemesterSelection } from "@/contexts/SemesterSelection";
 
 const ROLE_LABELS: Record<string, string> = {
   supervisor_expert: "督导专家",
@@ -25,6 +26,7 @@ const ROLE_COLORS: Record<string, string> = {
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const { semesterId } = useSemesterSelection();
   const { activeRole } = useActiveRole();
   const [, navigate] = useLocation();
   // 工作台卡片展示按"当前身份"切换；数据请求按用户完整权限集合预取，避免切换身份时的加载闪烁
@@ -37,24 +39,24 @@ export default function Dashboard() {
   const { data: notifications } = trpc.notifications.list.useQuery();
   const unreadCount = notifications?.filter((n) => !n.isRead).length || 0;
 
-  const { data: plans } = trpc.plans.myPlans.useQuery(undefined, {
+  const { data: plans } = trpc.plans.myPlans.useQuery({ semesterId }, {
     enabled: canSupervise,
   });
 
-  const { data: myEvals } = trpc.evaluations.myEvaluations.useQuery(undefined, {
+  const { data: myEvals } = trpc.evaluations.myEvaluations.useQuery({ semesterId }, {
     enabled: canSupervise,
   });
 
-  const { data: adminStats } = trpc.stats.adminDashboard.useQuery(undefined, {
+  const { data: adminStats } = trpc.stats.adminDashboard.useQuery({ semesterId }, {
     enabled: canViewAdminStats,
   });
 
-  const { data: collegeStats } = trpc.stats.collegeStats.useQuery({}, {
+  const { data: collegeStats } = trpc.stats.collegeStats.useQuery({ semesterId }, {
     enabled: isSecretary,
   });
 
   // 动态获取全校课程总数（督导专家/组长角色使用）
-  const { data: courseCountData } = trpc.stats.courseCount.useQuery(undefined, {
+  const { data: courseCountData } = trpc.stats.courseCount.useQuery({ semesterId }, {
     enabled: canSupervise,
   });
   const totalCourseCount = courseCountData?.total ?? "-";

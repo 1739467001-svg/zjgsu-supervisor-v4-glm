@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { ChevronLeft, ChevronRight, ClipboardEdit, BookOpen } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { useSemesterSelection } from "@/contexts/SemesterSelection";
 
 // 星期顺序
 const WEEKDAYS = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"];
@@ -88,6 +89,7 @@ interface Props {
 }
 
 export default function PlanCalendarView({ plans, onStatusUpdate, isUpdating }: Props) {
+  const { isHistorical } = useSemesterSelection();
   const [, navigate] = useLocation();
   const [currentWeek, setCurrentWeek] = useState<number>(() => {
     // 默认选择有计划的最小周次，或第1周
@@ -411,7 +413,7 @@ export default function PlanCalendarView({ plans, onStatusUpdate, isUpdating }: 
 
           {/* 操作按钮 */}
           <div className="flex gap-2 mt-4">
-            {selectedPlan.status === "pending" && (
+            {selectedPlan.status === "pending" && !isHistorical && (
               <>
                 <Button
                   size="sm"

@@ -10,11 +10,13 @@ import { Search, CheckCircle2, Clock, ChevronLeft, Star, BookOpen, Eye } from "l
 import { formatDateOnlyBJ } from "@shared/dateUtils";
 import { hasAnyRole } from "@shared/roles";
 import { formatEvaluatedWeeks } from "@shared/weeks";
+import { useSemesterSelection } from "@/contexts/SemesterSelection";
 
 type ProgressTab = "all" | "evaluated" | "unevaluated";
 
 export default function CourseProgress() {
   const { user } = useAuth();
+  const { semesterId } = useSemesterSelection();
   const [, navigate] = useLocation();
   const [tab, setTab] = useState<ProgressTab>("all");
   const [search, setSearch] = useState("");
@@ -24,11 +26,11 @@ export default function CourseProgress() {
   const isSecretary = hasAnyRole(user, ["college_secretary"]);
 
   const { data: progressData, isLoading } = trpc.stats.courseProgress.useQuery(
-    { college: isAdmin ? (collegeFilter || undefined) : undefined },
+    { semesterId, college: isAdmin ? (collegeFilter || undefined) : undefined },
     { enabled: isAdmin || isSecretary }
   );
 
-  const { data: collegesData } = trpc.courses.getColleges.useQuery(undefined, { enabled: isAdmin });
+  const { data: collegesData } = trpc.courses.getColleges.useQuery({ semesterId }, { enabled: isAdmin });
 
   const courses = progressData || [];
 

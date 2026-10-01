@@ -103,28 +103,28 @@ describe("督导范围（校级/院级）", () => {
   });
 
   it("院级督导不能对外院课程建立听课计划", async () => {
-    vi.mocked(db.getCourseById).mockResolvedValue({ id: 5, college: STATS } as any);
+    vi.mocked(db.getCourseById).mockResolvedValue({ semesterId: 1, id: 5, college: STATS } as any);
     const caller = appRouter.createCaller(ctxFor({ role: "supervisor_expert", college: HUMANITIES, supervisorScope: "college" }));
     await expect(caller.plans.create({ courseId: 5 })).rejects.toThrow(/本学院/);
     expect(db.createListeningPlan).not.toHaveBeenCalled();
   });
 
   it("院级督导可以对本学院课程建立听课计划", async () => {
-    vi.mocked(db.getCourseById).mockResolvedValue({ id: 6, college: HUMANITIES } as any);
+    vi.mocked(db.getCourseById).mockResolvedValue({ semesterId: 1, id: 6, college: HUMANITIES } as any);
     const caller = appRouter.createCaller(ctxFor({ role: "supervisor_expert", college: HUMANITIES, supervisorScope: "college" }));
     await caller.plans.create({ courseId: 6, planWeek: 7 });
     expect(db.createListeningPlan).toHaveBeenCalled();
   });
 
   it("校级督导可以对任意学院课程建立听课计划", async () => {
-    vi.mocked(db.getCourseById).mockResolvedValue({ id: 7, college: STATS } as any);
+    vi.mocked(db.getCourseById).mockResolvedValue({ semesterId: 1, id: 7, college: STATS } as any);
     const caller = appRouter.createCaller(ctxFor({ role: "supervisor_expert", college: null }));
     await caller.plans.create({ courseId: 7, planWeek: 3 });
     expect(db.createListeningPlan).toHaveBeenCalled();
   });
 
   it("院级督导不能对外院课程提交评价", async () => {
-    vi.mocked(db.getCourseById).mockResolvedValue({ id: 8, college: STATS } as any);
+    vi.mocked(db.getCourseById).mockResolvedValue({ semesterId: 1, id: 8, college: STATS } as any);
     const caller = appRouter.createCaller(ctxFor({ role: "supervisor_expert", college: HUMANITIES, supervisorScope: "college" }));
     await expect(
       caller.evaluations.create({ courseId: 8, status: "submitted" })
@@ -175,7 +175,7 @@ describe("评价记录可见范围", () => {
   it("督导专家只能看到自己的评价", async () => {
     const caller = appRouter.createCaller(ctxFor({ id: 42, role: "supervisor_expert" }));
     await caller.evaluations.allEvaluations({});
-    expect(db.getEvaluationsBySupervisor).toHaveBeenCalledWith(42);
+    expect(db.getEvaluationsBySupervisor).toHaveBeenCalledWith(42, 1);
     expect(db.getAllEvaluations).not.toHaveBeenCalled();
   });
 
@@ -198,7 +198,7 @@ describe("评价记录可见范围", () => {
       ctxFor({ id: 43, role: "supervisor_expert", college: HUMANITIES, supervisorScope: "college" })
     );
     await caller.evaluations.allEvaluations({});
-    expect(db.getEvaluationsBySupervisor).toHaveBeenCalledWith(43);
+    expect(db.getEvaluationsBySupervisor).toHaveBeenCalledWith(43, 1);
     expect(db.getAllEvaluations).not.toHaveBeenCalled();
   });
 });
@@ -208,7 +208,7 @@ describe("评价记录可见范围", () => {
 // ============================================================
 describe("提交评价后自动完结听课计划", () => {
   it("新建评价并直接提交时，同步把待听课计划标记为已评价", async () => {
-    vi.mocked(db.getCourseById).mockResolvedValue({ id: 9, college: HUMANITIES, courseName: "X" } as any);
+    vi.mocked(db.getCourseById).mockResolvedValue({ semesterId: 1, id: 9, college: HUMANITIES, courseName: "X" } as any);
     vi.mocked(db.completePendingPlanForEvaluation).mockResolvedValue(555);
     const caller = appRouter.createCaller(ctxFor({ id: 44, role: "supervisor_expert" }));
 
@@ -220,7 +220,7 @@ describe("提交评价后自动完结听课计划", () => {
   });
 
   it("保存草稿时不应该完结听课计划", async () => {
-    vi.mocked(db.getCourseById).mockResolvedValue({ id: 9, college: HUMANITIES } as any);
+    vi.mocked(db.getCourseById).mockResolvedValue({ semesterId: 1, id: 9, college: HUMANITIES } as any);
     const caller = appRouter.createCaller(ctxFor({ id: 44, role: "supervisor_expert" }));
 
     await caller.evaluations.create({ courseId: 9, actualWeek: 7, status: "draft" });
@@ -229,9 +229,9 @@ describe("提交评价后自动完结听课计划", () => {
   });
 
   it("草稿改为提交时，同步完结听课计划", async () => {
-    vi.mocked(db.getCourseById).mockResolvedValue({ id: 9, college: HUMANITIES } as any);
+    vi.mocked(db.getCourseById).mockResolvedValue({ semesterId: 1, id: 9, college: HUMANITIES } as any);
     vi.mocked(db.getEvaluationById).mockResolvedValue({
-      id: 100, supervisorId: 44, courseId: 9, actualWeek: 7, planId: null, status: "draft",
+      id: 100, supervisorId: 44, courseId: 9, semesterId: 1, actualWeek: 7, planId: null, status: "draft",
     } as any);
     const caller = appRouter.createCaller(ctxFor({ id: 44, role: "supervisor_expert" }));
 
@@ -241,9 +241,9 @@ describe("提交评价后自动完结听课计划", () => {
   });
 
   it("已提交的评价再次保存（自动保存）时，不重复完结听课计划", async () => {
-    vi.mocked(db.getCourseById).mockResolvedValue({ id: 9, college: HUMANITIES } as any);
+    vi.mocked(db.getCourseById).mockResolvedValue({ semesterId: 1, id: 9, college: HUMANITIES } as any);
     vi.mocked(db.getEvaluationById).mockResolvedValue({
-      id: 100, supervisorId: 44, courseId: 9, actualWeek: 7, planId: 555, status: "submitted",
+      id: 100, supervisorId: 44, courseId: 9, semesterId: 1, actualWeek: 7, planId: 555, status: "submitted",
     } as any);
     const caller = appRouter.createCaller(ctxFor({ id: 44, role: "supervisor_expert" }));
 
@@ -253,9 +253,9 @@ describe("提交评价后自动完结听课计划", () => {
   });
 
   it("已提交的评价被自动保存时，状态仍写回 submitted（不得退回草稿）", async () => {
-    vi.mocked(db.getCourseById).mockResolvedValue({ id: 9, college: HUMANITIES } as any);
+    vi.mocked(db.getCourseById).mockResolvedValue({ semesterId: 1, id: 9, college: HUMANITIES } as any);
     vi.mocked(db.getEvaluationById).mockResolvedValue({
-      id: 100, supervisorId: 44, courseId: 9, actualWeek: 7, planId: 555, status: "submitted",
+      id: 100, supervisorId: 44, courseId: 9, semesterId: 1, actualWeek: 7, planId: 555, status: "submitted",
     } as any);
     const caller = appRouter.createCaller(ctxFor({ id: 44, role: "supervisor_expert" }));
 
@@ -278,7 +278,7 @@ describe("校级督导的全校范围（回归用例）", () => {
   });
 
   it("填了人事归属学院的校级督导，可对其他学院课程建立听课计划", async () => {
-    vi.mocked(db.getCourseById).mockResolvedValue({ id: 11, college: STATS } as any);
+    vi.mocked(db.getCourseById).mockResolvedValue({ semesterId: 1, id: 11, college: STATS } as any);
     const caller = appRouter.createCaller(
       ctxFor({ role: "supervisor_expert", college: HUMANITIES, supervisorScope: "school" })
     );
@@ -287,7 +287,7 @@ describe("校级督导的全校范围（回归用例）", () => {
   });
 
   it("填了人事归属学院的校级督导，可对其他学院课程提交评价", async () => {
-    vi.mocked(db.getCourseById).mockResolvedValue({ id: 12, college: STATS } as any);
+    vi.mocked(db.getCourseById).mockResolvedValue({ semesterId: 1, id: 12, college: STATS } as any);
     const caller = appRouter.createCaller(
       ctxFor({ role: "supervisor_expert", college: HUMANITIES, supervisorScope: "school" })
     );
@@ -296,7 +296,7 @@ describe("校级督导的全校范围（回归用例）", () => {
   });
 
   it("老数据未标记范围时按校级处理，不被限定学院", async () => {
-    vi.mocked(db.getCourseById).mockResolvedValue({ id: 13, college: STATS } as any);
+    vi.mocked(db.getCourseById).mockResolvedValue({ semesterId: 1, id: 13, college: STATS } as any);
     const caller = appRouter.createCaller(
       ctxFor({ role: "supervisor_expert", college: HUMANITIES, supervisorScope: null })
     );
@@ -324,7 +324,7 @@ describe("附加角色为 JSON 字符串时的权限（回归用例）", () => {
   });
 
   it("附加了研究生院主管的院级督导，可评价其他学院课程", async () => {
-    vi.mocked(db.getCourseById).mockResolvedValue({ id: 21, college: STATS } as any);
+    vi.mocked(db.getCourseById).mockResolvedValue({ semesterId: 1, id: 21, college: STATS } as any);
     const caller = appRouter.createCaller(
       ctxFor({
         role: "supervisor_expert",
@@ -338,7 +338,7 @@ describe("附加角色为 JSON 字符串时的权限（回归用例）", () => {
   });
 
   it("没有附加角色的院级督导仍被限制在本学院", async () => {
-    vi.mocked(db.getCourseById).mockResolvedValue({ id: 22, college: STATS } as any);
+    vi.mocked(db.getCourseById).mockResolvedValue({ semesterId: 1, id: 22, college: STATS } as any);
     const caller = appRouter.createCaller(
       ctxFor({ role: "supervisor_expert", college: HUMANITIES, supervisorScope: "college", extraRoles: "[]" as any })
     );
