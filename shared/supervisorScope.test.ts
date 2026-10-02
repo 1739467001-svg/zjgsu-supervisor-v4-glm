@@ -43,10 +43,19 @@ describe("显式标记为院级时才限定学院", () => {
     expect(getSupervisorRoleLabel(u)).toBe("督导专家（院级）");
   });
 
-  it("标了院级却没填学院 —— 无法限定，按校级处理而不是把范围变成空", () => {
+  it("标了院级却没填学院 —— 保持院级标签，拒绝范围查询", () => {
     const u = { role: "supervisor_expert", college: null, supervisorScope: "college" };
-    expect(isCollegeScopedSupervisor(u)).toBe(false);
-    expect(getScopedCollege(u)).toBeUndefined();
+    expect(isCollegeScopedSupervisor(u)).toBe(true);
+    expect(getSupervisorScopeLabel(u)).toBe("院级");
+    expect(() => getScopedCollege(u)).toThrow("学院权限尚未配置");
+  });
+
+  it.each([null, "", "   ", "、,， "])("秘书缺少有效学院时拒绝访问：%s", college => {
+    expect(() => getScopedCollege({ role: "college_secretary", college })).toThrow("学院权限尚未配置");
+  });
+
+  it("明确拥有全校管理附加角色时，不因学院缺失撤销既有权限", () => {
+    expect(getScopedCollege({ role: "college_secretary", extraRoles: ["graduate_admin"], college: null })).toBeUndefined();
   });
 
   it("学院教学秘书的管辖范围仍由 college 决定，与督导范围无关", () => {

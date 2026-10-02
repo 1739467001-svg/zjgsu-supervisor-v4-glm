@@ -81,6 +81,25 @@ function ctxFor(user: Partial<any>): TrpcContext {
 const HUMANITIES = "人文学院";
 const STATS = "统计与数据科学学院";
 
+describe("缺失学院配置时拒绝扩大范围", () => {
+  it.each(["college_secretary", "supervisor_expert", "supervisor_leader"])("%s 不能退化成全校课程查询", async role => {
+    const caller = appRouter.createCaller(ctxFor({ role, college: null, supervisorScope: "college" }));
+    await expect(caller.courses.list({ page: 1, pageSize: 20 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.getCourses).not.toHaveBeenCalled();
+  });
+
+  it("秘书不能查询全校评价、统计或导出", async () => {
+    const caller = appRouter.createCaller(ctxFor({ role: "college_secretary", college: " " }));
+    await expect(caller.evaluations.allEvaluations({})).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.stats.collegeStats({})).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.stats.courseProgress({})).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.evaluations.exportToExcel({})).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.evaluations.exportToPdf({})).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.getAllEvaluations).not.toHaveBeenCalled();
+    expect(db.getCourseEvaluationProgress).not.toHaveBeenCalled();
+  });
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
 });

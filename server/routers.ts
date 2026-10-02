@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
-import { hasAnyRole, getScopedCollege, isCollegeInScope, ASSIGNABLE_ROLES, type RoleAwareUser } from "@shared/roles";
+import { hasAnyRole, getScopedCollege as resolveScopedCollege, MissingCollegeScopeError, isCollegeInScope, ASSIGNABLE_ROLES, type RoleAwareUser } from "@shared/roles";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
@@ -56,6 +56,17 @@ import { generateEvaluationExcel, generateEvaluationPdfHtml, generateEvaluationP
 // ============================================================
 // 角色权限中间件
 // ============================================================
+function getScopedCollege(user: RoleAwareUser | null | undefined) {
+  try {
+    return resolveScopedCollege(user);
+  } catch (error) {
+    if (error instanceof MissingCollegeScopeError) {
+      throw new TRPCError({ code: "FORBIDDEN", message: error.message });
+    }
+    throw error;
+  }
+}
+
 const supervisorProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (!hasAnyRole(ctx.user, ["supervisor_expert", "supervisor_leader", "graduate_admin", "admin"])) {
     throw new TRPCError({ code: "FORBIDDEN", message: "需要督导专家或以上权限" });

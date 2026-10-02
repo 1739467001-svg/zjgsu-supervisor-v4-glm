@@ -8,7 +8,7 @@
  *   - 打印路由的学院判断是字符串全等，不认「法学院（知识产权学院）」这类别名
  * 收敛成一个函数后，三个入口的口径只能一致。
  */
-import { getScopedCollege, hasAnyRole, type RoleAwareUser } from "./roles";
+import { getScopedCollege, hasMissingCollegeScope, hasAnyRole, type RoleAwareUser } from "./roles";
 import { isCollegeInScope } from "./colleges";
 
 /** 能查看他人评价的角色；督导专家不在其中——院级范围只决定他能听哪些课，不代表能看别人的记录 */
@@ -33,6 +33,7 @@ export function canViewEvaluation(
 
   // 没有查看他人评价资格的（普通督导专家、普通用户）到此为止
   if (!hasAnyRole(user, EVALUATION_VIEWER_ROLES)) return false;
+  if (hasMissingCollegeScope(user)) return false;
 
   const scopedCollege = getScopedCollege(user);
   // 全校范围（研究生院主管、系统管理员、校级督导组长）

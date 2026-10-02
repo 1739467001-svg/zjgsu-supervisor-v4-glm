@@ -94,15 +94,27 @@ export function isSupervisorRole(role: string): boolean {
 /**
  * 该用户是否为"院级督导"。
  *
- * 三个条件缺一不可：具备督导角色、范围显式标记为 college、且确实填了学院。
+ * 由督导角色和显式 college 范围决定；缺少学院不能把院级身份升级为校级。
  * 未显式标记的一律按校级处理 —— 这是刻意的安全默认：宁可范围偏大也不要
  * 让督导突然看不到本该负责的课程（此前按 college 推断就造成了这种事故）。
  */
 export function isCollegeScopedSupervisor(user?: RoleAwareUser | null): boolean {
   if (!user) return false;
   if (user.supervisorScope !== "college") return false;
-  if (!user.college) return false;
   return hasAnyRole(user, SUPERVISOR_ROLES);
+}
+
+export class MissingCollegeScopeError extends Error {
+  constructor() {
+    super("学院权限尚未配置，请联系管理员补充所属学院后再操作");
+    this.name = "MissingCollegeScopeError";
+  }
+}
+
+export function hasMissingCollegeScope(user?: RoleAwareUser | null): boolean {
+  if (!user || hasAnyRole(user, ["graduate_admin", "admin"])) return false;
+  const restricted = hasAnyRole(user, ["college_secretary"]) || isCollegeScopedSupervisor(user);
+  return restricted && !user.college?.split(/[、,，]/).some(part => part.trim().length > 0);
 }
 
 /**
@@ -115,6 +127,7 @@ export function isCollegeScopedSupervisor(user?: RoleAwareUser | null): boolean 
 export function getScopedCollege(user?: RoleAwareUser | null): string | undefined {
   if (!user) return undefined;
   if (hasAnyRole(user, ["graduate_admin", "admin"])) return undefined;
+  if (hasMissingCollegeScope(user)) throw new MissingCollegeScopeError();
   if (hasAnyRole(user, ["college_secretary"]) && user.college) return user.college;
   if (isCollegeScopedSupervisor(user)) return user.college || undefined;
   return undefined;
