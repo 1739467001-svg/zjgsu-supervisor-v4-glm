@@ -3,10 +3,16 @@ import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
 import { useSemesterSelection } from "@/contexts/SemesterSelection";
 import { SemesterCollegeChart } from "@/components/SemesterCollegeChart";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { hasAnyRole } from "@shared/roles";
 
 export default function AdminDashboard() {
   const { semesterId, label, isHistorical } = useSemesterSelection();
   const [, navigate] = useLocation();
+  const { user } = useAuth();
+  // 主管/系统管理员看全校口径；学院教学秘书（含分管领导双身份）按权限表看本院（全院）口径，
+  // 后端已按调用者收窄数据，这里只负责把口径讲清楚
+  const isCollegeView = !!user && hasAnyRole(user as any, ["college_secretary"]) && !hasAnyRole(user as any, ["graduate_admin", "admin"]);
   const { data: stats, isLoading, error, refetch } = trpc.stats.adminDashboard.useQuery({ semesterId });
   const rows = stats?.semesterColleges ?? [];
   const evaluated = rows.reduce((n, r) => n + r.evaluatedCourses, 0);
@@ -17,8 +23,10 @@ export default function AdminDashboard() {
     <div className="p-4 sm:p-6 space-y-6 max-w-[1440px] mx-auto">
       <header className="border-b border-slate-200 pb-5">
         <p className="text-xs text-slate-500 tracking-wider">浙江工商大学 · 研究生院</p>
-        <h1 className="text-2xl font-semibold text-slate-900 mt-2">学期督导概览</h1>
-        <p className="mt-2 text-sm text-slate-600">{label} · {isHistorical ? "历史学期档案" : "当前学期"} · 只统计该学期已提交的评价，草稿保留在评价记录中。</p>
+        <h1 className="text-2xl font-semibold text-slate-900 mt-2">{isCollegeView ? "学院统计仪表盘" : "学期督导概览"}</h1>
+        <p className="mt-2 text-sm text-slate-600">
+          {label} · {isHistorical ? "历史学期档案" : "当前学期"} · {isCollegeView ? `全院口径（${user?.college || "本院"}）` : "全校口径"} · 只统计该学期已提交的评价，草稿保留在评价记录中。
+        </p>
       </header>
       {isLoading ? <p role="status">正在加载所选学期数据…</p> : error || !stats ?
         <div role="alert" className="rounded-lg border border-red-200 p-5"><p>统计数据加载失败，未将错误显示为 0。</p><button onClick={() => refetch()} className="underline mt-2">重新加载</button></div> : <>

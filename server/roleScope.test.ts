@@ -26,6 +26,8 @@ vi.mock("./db", () => ({
   getEvaluationsBySupervisor: vi.fn().mockResolvedValue([]),
   getAllEvaluations: vi.fn().mockResolvedValue([]),
   getEvaluationById: vi.fn().mockResolvedValue(null),
+  // 评价独占守卫：默认无已提交评价，用例可按需覆盖
+  getSubmittedEvaluationByCourse: vi.fn().mockResolvedValue(undefined),
   createEvaluation: vi.fn().mockResolvedValue({ id: 77, planId: null }),
   updateEvaluation: vi.fn().mockResolvedValue(undefined),
   deleteEvaluation: vi.fn().mockResolvedValue(undefined),
@@ -238,6 +240,28 @@ describe("提交评价后自动完结听课计划", () => {
     expect(db.updateEvaluation).toHaveBeenCalledWith(77, { planId: 555 });
   });
 
+  it("评价独占（服务端兜底）：他人已提交的课程，再提交被拒绝", async () => {
+    vi.mocked(db.getCourseById).mockResolvedValue({ semesterId: 1, id: 9, college: HUMANITIES, courseName: "X" } as any);
+    vi.mocked(db.getSubmittedEvaluationByCourse).mockResolvedValue({ id: 88, supervisorId: 999, courseId: 9, status: "submitted" } as any);
+    const caller = appRouter.createCaller(ctxFor({ id: 44, role: "supervisor_expert" }));
+
+    await expect(
+      caller.evaluations.create({ courseId: 9, actualWeek: 7, status: "submitted" })
+    ).rejects.toThrow(/已被其他督导评价/);
+    // 拒绝时不得真的写入评价
+    expect(db.createEvaluation).not.toHaveBeenCalled();
+  });
+
+  it("评价独占：本人已有已提交评价时，重复创建也被拒绝", async () => {
+    vi.mocked(db.getCourseById).mockResolvedValue({ semesterId: 1, id: 9, college: HUMANITIES, courseName: "X" } as any);
+    vi.mocked(db.getSubmittedEvaluationByCourse).mockResolvedValue({ id: 88, supervisorId: 44, courseId: 9, status: "submitted" } as any);
+    const caller = appRouter.createCaller(ctxFor({ id: 44, role: "supervisor_expert" }));
+
+    await expect(
+      caller.evaluations.create({ courseId: 9, actualWeek: 7, status: "submitted" })
+    ).rejects.toThrow(/评价记录中修改/);
+  });
+
   it("保存草稿时不应该完结听课计划", async () => {
     vi.mocked(db.getCourseById).mockResolvedValue({ semesterId: 1, id: 9, college: HUMANITIES } as any);
     const caller = appRouter.createCaller(ctxFor({ id: 44, role: "supervisor_expert" }));
@@ -307,6 +331,8 @@ describe("校级督导的全校范围（回归用例）", () => {
 
   it("填了人事归属学院的校级督导，可对其他学院课程提交评价", async () => {
     vi.mocked(db.getCourseById).mockResolvedValue({ semesterId: 1, id: 12, college: STATS } as any);
+    // 重置独占守卫的 mock（评价独占用例可能在本用例之前运行并改写其返回值）
+    vi.mocked(db.getSubmittedEvaluationByCourse).mockResolvedValue(undefined);
     const caller = appRouter.createCaller(
       ctxFor({ role: "supervisor_expert", college: HUMANITIES, supervisorScope: "school" })
     );
@@ -344,6 +370,7 @@ describe("附加角色为 JSON 字符串时的权限（回归用例）", () => {
 
   it("附加了研究生院主管的院级督导，可评价其他学院课程", async () => {
     vi.mocked(db.getCourseById).mockResolvedValue({ semesterId: 1, id: 21, college: STATS } as any);
+    vi.mocked(db.getSubmittedEvaluationByCourse).mockResolvedValue(undefined);
     const caller = appRouter.createCaller(
       ctxFor({
         role: "supervisor_expert",

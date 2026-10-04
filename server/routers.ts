@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
-import { hasAnyRole, getScopedCollege as resolveScopedCollege, MissingCollegeScopeError, isCollegeInScope, ASSIGNABLE_ROLES, type RoleAwareUser } from "@shared/roles";
+import { hasAnyRole, getRoleLabel, normalizeExtraRoles, getScopedCollege as resolveScopedCollege, MissingCollegeScopeError, isCollegeInScope, ASSIGNABLE_ROLES, type RoleAwareUser } from "@shared/roles";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
@@ -28,6 +28,7 @@ import {
   getDistinctColleges,
   getDistinctTeachers,
   getEvaluationById,
+  getSubmittedEvaluationByCourse,
   getEvaluationsBySupervisor,
   getListeningPlansBySupervisor,
   getUsedWeeksForCourse,
@@ -47,9 +48,14 @@ import {
   updateUserPassword,
   updateUserRole,
   upsertUser,
+  getUserById,
+  countOtherAdmins,
+  logUserAdminChange,
+  getRecentUserAdminLogs,
 } from "./db";
 import { canViewEvaluation, canMutateListeningPlan } from "@shared/evaluationAccess";
 import { isWritableSemester } from "@shared/semesterArchive";
+import { validateUserAdminChange, type ProposedUserAdminChange } from "@shared/userAdmin";
 import { sdk } from "./_core/sdk";
 import { generateEvaluationExcel, generateEvaluationPdfHtml, generateEvaluationPdfBuffer } from "./exportUtils";
 
@@ -158,6 +164,33 @@ function ensureCourseInScope(user: RoleAwareUser, course: { college: string | nu
   if (!isCollegeInScope(scopedCollege, course.college)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "院级督导仅可听课/评价本学院课程" });
   }
+}
+
+// 用户角色变更的写库前校验：学院必填 / 防自我锁定 / 最后管理员保护（规则见 shared/userAdmin.ts）
+async function guardUserAdminChange(actorId: number, userId: number, change: ProposedUserAdminChange) {
+  const target = await getUserById(userId);
+  if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "用户不存在" });
+  const otherAdminCount = await countOtherAdmins(userId);
+  const error = validateUserAdminChange({ actorId, target, change, otherAdminCount });
+  if (error) throw new TRPCError({ code: "BAD_REQUEST", message: error });
+  return target;
+}
+
+// 授权变更落审计日志（升级方案 3.2：保留必要的授权变更记录）
+async function recordUserAdminChange(
+  actor: { id: number; name?: string | null },
+  target: { id: number; name?: string | null },
+  action: "role" | "extraRoles" | "college" | "supervisorScope",
+  detail: string
+) {
+  await logUserAdminChange({
+    adminId: actor.id,
+    adminName: actor.name ?? null,
+    targetUserId: target.id,
+    targetName: target.name ?? null,
+    action,
+    detail,
+  });
 }
 
 export const appRouter = router({
@@ -327,6 +360,20 @@ export const appRouter = router({
     create: supervisorProcedure.input(evaluationSchema).mutation(async ({ input, ctx }) => {
       const course = await ensureCourseExists(input.courseId);
       ensureCourseInScope(ctx.user!, course);
+
+      // 评价独占（服务端兜底）：一门课程只允许一条已提交评价，防止直连接口绕过前端
+      if (input.status === "submitted") {
+        const submitted = await getSubmittedEvaluationByCourse(input.courseId);
+        if (submitted) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              submitted.supervisorId === ctx.user!.id
+                ? "该课程已有本人提交的评价，请在评价记录中修改"
+                : "该课程已被其他督导评价，不能再评",
+          });
+        }
+      }
 
       const activeSemester = await getActiveSemester();
       await requireCurrentSemester(course.semesterId);
@@ -567,9 +614,31 @@ export const appRouter = router({
   // 统计（研究生院主管）
   // ============================================================
    stats: router({
-    adminDashboard: adminProcedure.input(semesterInput).query(async ({ input }) => {
-      return getAdminStats(await selectedSemesterId(input?.semesterId));
-    }),
+    // 仪表盘口径按调用者收窄（2026-10-04 按研究生院权限表）：
+    // 主管/系统管理员 = 全校；学院教学秘书（含分管领导的双身份）= 全院（本院）。
+    // 学院统计口径不含其他学院，纯督导角色无此权限。
+    adminDashboard: protectedProcedure
+      .input(semesterInput)
+      .query(async ({ input, ctx }) => {
+        const user = ctx.user!;
+        const isAdmin = hasAnyRole(user, ["graduate_admin", "admin"]);
+        const isSecretary = hasAnyRole(user, ["college_secretary"]);
+        if (!isAdmin && !isSecretary) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "统计仪表盘仅对研究生院主管、系统管理员与学院教学秘书开放" });
+        }
+        let scopedCollege: string | undefined;
+        if (!isAdmin) {
+          try {
+            scopedCollege = resolveScopedCollege(user);
+          } catch (err) {
+            if (err instanceof MissingCollegeScopeError) {
+              throw new TRPCError({ code: "FORBIDDEN", message: err.message });
+            }
+            throw err;
+          }
+        }
+        return getAdminStats(await selectedSemesterId(input?.semesterId), scopedCollege);
+      }),
     collegeStats: protectedProcedure
       .input(z.object({ college: z.string().optional(), semesterId: z.number().int().positive().optional() }))
       .query(async ({ input, ctx }) => {
@@ -601,9 +670,9 @@ export const appRouter = router({
         const scopedCollege = getScopedCollege(user);
         return getCourseEvaluationProgress(scopedCollege || input.college, await selectedSemesterId(input.semesterId));
       }),
-    // 全校各学院评价进度汇总（研究生院主管专用）
+    // 全校各学院评价进度汇总（研究生院主管/系统管理员专用）
     allCollegeProgress: adminProcedure.input(semesterInput).query(async ({ input }) => {
-      return getAllCollegeEvaluationProgress(await selectedSemesterId(input?.semesterId));
+      return getAllCollegeEvaluationProgress(undefined, await selectedSemesterId(input?.semesterId));
     }),
     // 全校课程总数（所有已登录用户可查）
     courseCount: protectedProcedure.input(semesterInput).query(async ({ input }) => {
@@ -697,34 +766,59 @@ export const appRouter = router({
       return getAllUsers();
     }),
 
+    // 授权变更记录（升级方案 3.2：谁在何时把谁的什么权限改成了什么）
+    getAuditLog: adminProcedure.query(async () => {
+      return getRecentUserAdminLogs();
+    }),
+
     updateRole: adminProcedure
-      .input(z.object({ userId: z.number(), role: z.string() }))
-      .mutation(async ({ input }) => {
+      .input(z.object({ userId: z.number(), role: z.enum(ASSIGNABLE_ROLES) }))
+      .mutation(async ({ input, ctx }) => {
+        const target = await guardUserAdminChange(ctx.user!.id, input.userId, { role: input.role });
+        const before = target.role;
         await updateUserRole(input.userId, input.role);
+        await recordUserAdminChange(ctx.user!, target, "role", `主角色：${getRoleLabel(before)} → ${getRoleLabel(input.role)}`);
         return { success: true };
       }),
 
     // 更新附加角色（多角色切换用）
     updateExtraRoles: adminProcedure
       .input(z.object({ userId: z.number(), extraRoles: z.array(z.enum(ASSIGNABLE_ROLES)) }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        const target = await guardUserAdminChange(ctx.user!.id, input.userId, { extraRoles: input.extraRoles });
+        const before = normalizeExtraRoles(target.extraRoles);
         await updateUserExtraRoles(input.userId, input.extraRoles);
+        await recordUserAdminChange(
+          ctx.user!,
+          target,
+          "extraRoles",
+          `附加角色：${before.length ? before.map(getRoleLabel).join("、") : "无"} → ${input.extraRoles.length ? input.extraRoles.map(getRoleLabel).join("、") : "无"}`
+        );
         return { success: true };
       }),
 
     // 更新所属学院（学院教学秘书的管辖学院；对督导是人事归属学院）
     updateCollege: adminProcedure
       .input(z.object({ userId: z.number(), college: z.string().nullable() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        const target = await guardUserAdminChange(ctx.user!.id, input.userId, { college: input.college });
         await updateUserCollege(input.userId, input.college);
+        await recordUserAdminChange(ctx.user!, target, "college", `所属学院：${target.college || "无"} → ${input.college || "无"}`);
         return { success: true };
       }),
 
     // 更新督导范围（校级=全校课程，院级=仅本学院）
     updateSupervisorScope: adminProcedure
       .input(z.object({ userId: z.number(), scope: z.enum(["school", "college"]) }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        const target = await guardUserAdminChange(ctx.user!.id, input.userId, { supervisorScope: input.scope });
         await updateUserSupervisorScope(input.userId, input.scope);
+        await recordUserAdminChange(
+          ctx.user!,
+          target,
+          "supervisorScope",
+          `督导范围：${target.supervisorScope === "college" ? "院级" : "校级"} → ${input.scope === "college" ? "院级" : "校级"}`
+        );
         return { success: true };
       }),
 

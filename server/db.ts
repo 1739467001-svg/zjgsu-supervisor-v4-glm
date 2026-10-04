@@ -10,15 +10,18 @@ import {
   InsertNotification,
   InsertSemester,
   InsertUser,
+  InsertUserAdminLog,
   courses,
   courseEvaluations,
   listeningPlans,
   notifications,
   semesters,
+  userAdminLogs,
   users,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { buildSemesterCollegeRows } from "../shared/semesterStats";
+import { resolveCollege } from "../shared/colleges";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let _pool: any = null;
@@ -108,6 +111,50 @@ export async function getUserByEmployeeId(employeeId: string) {
   if (!db) return undefined;
   const result = await db.select().from(users).where(eq(users.employeeId, employeeId)).limit(1);
   return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getUserById(userId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+/**
+ * 除指定用户外，当前拥有管理角色（主角色或附加角色）的账号数量。
+ * 用于「最后一个管理员」保护：降级 target 前先确认还有别人管得住系统。
+ */
+export async function countOtherAdmins(excludeUserId: number) {
+  const db = await getDb();
+  if (!db) return 0;
+  const result = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(users)
+    .where(
+      and(
+        sql`${users.id} <> ${excludeUserId}`,
+        or(
+          inArray(users.role, ["graduate_admin", "admin"] as any[]),
+          sql`JSON_CONTAINS(${users.extraRoles}, '"graduate_admin"') OR JSON_CONTAINS(${users.extraRoles}, '"admin"')`
+        )
+      )
+    );
+  return Number(result[0]?.count || 0);
+}
+
+// ============================================================
+// 用户角色管理审计日志（谁在何时把谁的什么权限改成了什么）
+// ============================================================
+export async function logUserAdminChange(entry: InsertUserAdminLog) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(userAdminLogs).values(entry);
+}
+
+export async function getRecentUserAdminLogs(limit = 50) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(userAdminLogs).orderBy(desc(userAdminLogs.createdAt)).limit(limit);
 }
 
 export async function getAllUsers() {
@@ -268,6 +315,26 @@ export async function updateSemester(id: number, data: Partial<InsertSemester>) 
 // ============================================================
 // 课程相关
 // ============================================================
+
+/**
+ * 把学院范围字符串（可含多学院、括号全称）转成课程表的 LIKE 条件。
+ *
+ * 先按顿号/逗号拆分，再用 resolveCollege 把「法学院（知识产权学院）」这类
+ * 官方全称解析成课表里的简称口径——否则范围字符串原样 LIKE 会匹配不到
+ * 任何课程（2026-10-04 修复：法学院、管工（跨境电商）等学院的秘书/督导
+ * 课程列表、评价进度、统计会被清空）。
+ */
+function collegeLikeConditions(college: string) {
+  const parts = college
+    .split(/[、,，]/)
+    .map((c) => resolveCollege(c.trim()))
+    .filter(Boolean);
+  const conds = [];
+  if (parts.length === 1) conds.push(like(courses.college, `%${parts[0]}%`));
+  else if (parts.length > 1) conds.push(or(...parts.map((c) => like(courses.college, `%${c}%`)))!);
+  return conds;
+}
+
 export async function getCourses(filters: {
   college?: string;
   campus?: string;
@@ -290,17 +357,9 @@ export async function getCourses(filters: {
     if (semesterFilter) conditions.push(semesterFilter);
   }
   // 严格过滤：只有非空字符串才作为筛选条件
-  // 学院支持多学院字符串（顿号/逗号分隔，供学院秘书/院级督导多学院场景使用），用模糊匹配逐一比对
+  // 学院条件经过 resolveCollege 别名解析，官方全称也能匹配到课表简称
   if (filters.college && filters.college.trim()) {
-    const collegeList = filters.college
-      .split(/[、,，]/)
-      .map((c) => c.trim())
-      .filter(Boolean);
-    if (collegeList.length === 1) {
-      conditions.push(like(courses.college, `%${collegeList[0]}%`));
-    } else if (collegeList.length > 1) {
-      conditions.push(or(...collegeList.map((c) => like(courses.college, `%${c}%`)))!);
-    }
+    conditions.push(...collegeLikeConditions(filters.college.trim()));
   }
   if (filters.campus && filters.campus.trim()) conditions.push(eq(courses.campus, filters.campus.trim()));
   if (filters.weekday && filters.weekday.trim()) conditions.push(eq(courses.weekday, filters.weekday.trim()));
@@ -570,6 +629,25 @@ export async function getEvaluationById(id: number) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+/**
+ * 课程是否已有「已提交」评价（评价独占用）。
+ *
+ * 独占此前只做在前端隐藏入口，直连接口可绕过——按升级方案
+ * 「不能仅靠隐藏按钮」的标准，服务端在 create 提交前做兜底拦截。
+ * 历史学期已存在的同课多条评价是当时规则下的真实数据，保持不动。
+ */
+export async function getSubmittedEvaluationByCourse(courseId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db
+    .select()
+    .from(courseEvaluations)
+    .where(and(eq(courseEvaluations.courseId, courseId), eq(courseEvaluations.status, "submitted")))
+    .orderBy(desc(courseEvaluations.createdAt))
+    .limit(1);
+  return rows[0];
+}
+
 export async function getEvaluationsBySupervisor(supervisorId: number, semesterId?: number) {
   const db = await getDb();
   if (!db) return [];
@@ -641,9 +719,17 @@ async function enrichEvaluations(evals: CourseEvaluation[]) {
 }
 
 // ============================================================
-// 统计相关（研究生院主管仪表盘）
+// 统计相关（研究生院主管仪表盘 / 学院教学秘书本院仪表盘）
 // ============================================================
-export async function getAdminStats(semesterId?: number) {
+
+/**
+ * 学期督导概览。
+ *
+ * @param semesterId 统计的学期；缺省用当前学期
+ * @param college    学院范围（秘书/分管领导的全院口径）；缺省为全校。
+ *                   范围字符串经 resolveCollege 别名解析，官方全称也能命中课表简称。
+ */
+export async function getAdminStats(semesterId?: number, college?: string) {
   const db = await getDb();
   if (!db) return null;
 
@@ -653,6 +739,7 @@ export async function getAdminStats(semesterId?: number) {
   const submittedThisSemester = semesterFilter
     ? and(eq(courseEvaluations.status, "submitted"), semesterFilter)
     : eq(courseEvaluations.status, "submitted");
+  const collegeConds = college ? collegeLikeConditions(college) : [];
 
   const [
     totalCourses,
@@ -665,8 +752,8 @@ export async function getAdminStats(semesterId?: number) {
   ] = await Promise.all([
     // 总课程数：与「全校课程」列表同口径，只数当前学期，
     // 否则归档的上学期课程会让这个数字比课程列表多出一截
-    db.select({ count: sql<number>`count(*)` }).from(courses).where(await currentSemesterCourseFilter(semesterId)),
-    // 总评价数
+    db.select({ count: sql<number>`count(*)` }).from(courses).where(and(await currentSemesterCourseFilter(semesterId), ...collegeConds)),
+    // 总评价数（学院范围时以 collegeRows 汇总为准，与学院明细可对账）
     db.select({ count: sql<number>`count(*)` }).from(courseEvaluations).where(submittedThisSemester),
     // 督导专家数
     db.select({ count: sql<number>`count(*)` }).from(users).where(inArray(users.role, ["supervisor_expert", "supervisor_leader"] as any[])),
@@ -679,6 +766,7 @@ export async function getAdminStats(semesterId?: number) {
     //
     // leftJoin 而非 innerJoin：课程被替换/删除后仍保留关联评价的行，
     // 避免"孤儿评价"从学院维度统计中被静默丢弃，导致与总数 KPI 对不上。
+    // 学院范围时条件落在 join 的 courses 上（孤儿评价无法归属学院，本就不在范围内）。
     db
       .select({
         college: sql<string>`COALESCE(${courses.college}, '未知学院（原课程已变更）')`,
@@ -688,7 +776,7 @@ export async function getAdminStats(semesterId?: number) {
       })
       .from(courseEvaluations)
       .leftJoin(courses, eq(courseEvaluations.courseId, courses.id))
-      .where(submittedThisSemester)
+      .where(and(submittedThisSemester, ...collegeConds))
       .groupBy(sql`COALESCE(${courses.college}, '未知学院（原课程已变更）')`)
       .orderBy(desc(sql`count(*)`)),
     // 按星期分布
@@ -741,10 +829,13 @@ export async function getAdminStats(semesterId?: number) {
     avgScore: r.avgScore === null || r.avgScore === undefined ? null : Number(r.avgScore),
   }));
 
+  const scopedTotalEvaluations = collegeRows.reduce((acc, r) => acc + r.count, 0);
+
   return {
     totalCourses: Number(totalCourses[0]?.count || 0),
-    semesterColleges: buildSemesterCollegeRows(await getAllCollegeEvaluationProgress(semesterId), collegeRows),
-    totalEvaluations: Number(totalEvaluations[0]?.count || 0),
+    semesterColleges: buildSemesterCollegeRows(await getAllCollegeEvaluationProgress(college, semesterId), collegeRows),
+    // 学院范围口径下，评价总数与学院明细同源（孤儿评价不计入），保证可对账
+    totalEvaluations: college ? scopedTotalEvaluations : Number(totalEvaluations[0]?.count || 0),
     totalSupervisors: Number(totalSupervisors[0]?.count || 0),
     collegeStats: collegeRows,
     evalByWeekday: evalByWeekday.map((r) => ({ weekday: r.weekday, count: Number(r.count) })),
@@ -824,16 +915,7 @@ export async function getCourseEvaluationProgress(college?: string, semesterId?:
   const semesterFilter = await currentSemesterCourseFilter(semesterId);
   if (semesterFilter) conditions.push(semesterFilter);
   if (college) {
-    // 支持多学院字符串（顿号/逗号分隔）
-    const colleges = college
-      .split(/[、,，]/)
-      .map((c) => c.trim())
-      .filter(Boolean);
-    if (colleges.length === 1) {
-      conditions.push(like(courses.college, `%${colleges[0]}%`));
-    } else {
-      conditions.push(or(...colleges.map((c) => like(courses.college, `%${c}%`)))!);
-    }
+    conditions.push(...collegeLikeConditions(college));
   }
 
   const allCourses = await db
@@ -890,7 +972,8 @@ export async function getCourseEvaluationProgress(college?: string, semesterId?:
 /**
  * 获取全校各学院的课程评价进度汇总（研究生院主管用）
  */
-export async function getAllCollegeEvaluationProgress(semesterId?: number) {
+/** 全校（或指定学院范围）的课程评价进度汇总；范围口径经别名解析 */
+export async function getAllCollegeEvaluationProgress(college?: string, semesterId?: number) {
   const db = await getDb();
   if (!db) return [];
 
@@ -898,6 +981,7 @@ export async function getAllCollegeEvaluationProgress(semesterId?: number) {
   // 会让本学期的进度被稀释成一个没有意义的数字，学院名单里也会冒出
   // 只有归档数据才有的学院（如拆分前的「工商管理学院（MBA学院）」）
   const semesterFilter = await currentSemesterCourseFilter(semesterId);
+  const collegeConds = college ? collegeLikeConditions(college) : [];
 
   // 按学院统计课程总数
   const courseTotals = await db
@@ -906,7 +990,7 @@ export async function getAllCollegeEvaluationProgress(semesterId?: number) {
       total: sql<number>`count(*)`,
     })
     .from(courses)
-    .where(semesterFilter)
+    .where(and(semesterFilter, ...collegeConds))
     .groupBy(courses.college)
     .orderBy(courses.college);
 
@@ -920,9 +1004,12 @@ export async function getAllCollegeEvaluationProgress(semesterId?: number) {
     .from(courseEvaluations)
     .innerJoin(courses, eq(courseEvaluations.courseId, courses.id))
     .where(
-      semesterFilter
-        ? and(eq(courseEvaluations.status, "submitted"), semesterFilter, await currentSemesterEvaluationFilter(semesterId))
-        : eq(courseEvaluations.status, "submitted")
+      and(
+        eq(courseEvaluations.status, "submitted"),
+        semesterFilter ?? undefined,
+        await currentSemesterEvaluationFilter(semesterId),
+        ...collegeConds
+      )
     )
     .groupBy(courses.college);
 

@@ -1,7 +1,7 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import SemesterSwitcher from "./SemesterSwitcher";
 import { useActiveRole } from "@/hooks/useActiveRole";
-import { ROLE_LABELS, getSupervisorScopeLabel, isSupervisorRole } from "@shared/roles";
+import { getRoleViewLabel, getSupervisorScopeLabel, isSupervisorRole } from "@shared/roles";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -39,7 +39,7 @@ import {
   BarChart2,
   UploadCloud,
 } from "lucide-react";
-import { CSSProperties, useEffect, useRef, useState } from "react";
+import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { trpc } from "@/lib/trpc";
@@ -59,25 +59,27 @@ import { KeyRound, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
 /**
- * 根据当前身份返回导航菜单。
+ * 根据一组有效角色计算导航菜单。
  *
- * 之前是一串 if / else if，而 "admin" 同时出现在第一个和第三个分支里 ——
- * 系统管理员被第一个分支接住，后面的管理菜单永远轮不到，于是看不到
- * 用户管理、统计仪表盘、上传课程数据。这里改成按能力分别判断，
- * admin 既拿督导菜单也拿管理菜单。
+ * 多身份用户取"能力并集"：切换身份只改变工作台视图，不隐藏任何已授权入口——
+ * 分管领导切到秘书视图时仍保留听课计划/评价记录，主管随时可以评课
+ * （后端 supervisorProcedure 本就放行 graduate_admin，菜单同步呈现）。
  *
- * 传入的是身份切换器里的当前身份（activeRole），不是主角色 ——
- * 附加角色通过切换身份生效。
+ * 单一身份的菜单与历史行为一致；系统管理员同时拿督导菜单和管理菜单。
  */
-export function getMenuItems(role: string) {
+const CAPABILITY_SUPERVISE = ["supervisor_expert", "supervisor_leader", "graduate_admin", "admin"];
+const CAPABILITY_ADMINISTER = ["graduate_admin", "admin"];
+const CAPABILITY_SECRETARY = ["college_secretary"];
+
+export function getMenuItemsForRoles(roles: readonly string[]) {
   const base = [
     { icon: LayoutDashboard, label: "工作台", path: "/", key: "home" },
     { icon: BookOpen, label: "全校课程", path: "/courses", key: "courses" },
   ];
 
-  const canSupervise = ["supervisor_expert", "supervisor_leader", "admin"].includes(role);
-  const canAdminister = ["graduate_admin", "admin"].includes(role);
-  const isSecretary = role === "college_secretary";
+  const canSupervise = roles.some((r) => CAPABILITY_SUPERVISE.includes(r));
+  const canAdminister = roles.some((r) => CAPABILITY_ADMINISTER.includes(r));
+  const isSecretary = roles.some((r) => CAPABILITY_SECRETARY.includes(r));
 
   if (canSupervise) {
     base.push({ icon: ClipboardList, label: "听课计划", path: "/plans", key: "plans" });
@@ -86,18 +88,27 @@ export function getMenuItems(role: string) {
   if (isSecretary) {
     base.push({ icon: ClipboardCheck, label: "督导评价", path: "/evaluations", key: "evaluations-secretary" });
     base.push({ icon: BarChart2, label: "评价进度", path: "/course-progress", key: "course-progress-secretary" });
-  } else if (canAdminister) {
+    // 全校聚合图表（覆盖率/次数/平均分，不含任何评语明细）；明细下钻仍按本院范围在各接口校验
+    base.push({ icon: Building2, label: "统计仪表盘", path: "/admin", key: "admin" });
+  }
+
+  if (canAdminister) {
     // 「全部评价」已经涵盖「评价记录」，同一个 /evaluations 不重复列两次
     base.push({ icon: ClipboardCheck, label: "全部评价", path: "/evaluations", key: "evaluations-admin" });
     base.push({ icon: BarChart2, label: "评价进度", path: "/course-progress", key: "course-progress-admin" });
     base.push({ icon: Building2, label: "统计仪表盘", path: "/admin", key: "admin" });
     base.push({ icon: Users, label: "用户管理", path: "/users", key: "users" });
     base.push({ icon: UploadCloud, label: "上传课程数据", path: "/upload-courses", key: "upload-courses" });
-  } else if (canSupervise) {
+  } else if (canSupervise && !isSecretary) {
     base.push({ icon: ClipboardCheck, label: "评价记录", path: "/evaluations", key: "evaluations-expert" });
   }
 
   return base;
+}
+
+/** 单一身份的菜单（供测试与按当前身份渲染的调用方使用） */
+export function getMenuItems(role: string) {
+  return getMenuItemsForRoles([role]);
 }
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -174,12 +185,15 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   };
 
   const role = activeRole;
-  const menuItems = getMenuItems(role);
+  // 侧边栏 = 全部有效角色的能力并集，切换身份不隐藏任何已授权入口；
+  // 工作台等页面内容仍按当前身份（activeRole）渲染
+  const menuItems = useMemo(() => getMenuItemsForRoles(effectiveRoles), [effectiveRoles.join(",")]);
 
-  // 督导角色才带校级/院级后缀；其余角色直接用角色名，避免把同一身份写两遍
+  // 督导角色才带校级/院级后缀；其余角色直接用角色名，避免把同一身份写两遍。
+  // 双身份的分管领导切到秘书视图时显示「学院管理」而不是「学院教学秘书」。
   const scopeLabel = getSupervisorScopeLabel(user as any);
   const roleDisplay = (r: string) => {
-    const label = ROLE_LABELS[r] || r;
+    const label = getRoleViewLabel(r, user as any);
     return isSupervisorRole(r) && scopeLabel ? `${label}（${scopeLabel}）` : label;
   };
 
