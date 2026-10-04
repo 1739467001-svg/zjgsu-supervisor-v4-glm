@@ -111,3 +111,6 @@ temp/
 
 # 部署产物与本地密钥（deploy.sh 生成，切勿提交）
 .env.*
+
+# GitHub Actions 配置：当前凭证无 workflow 权限域，暂不随仓库推送
+.github/workflows/
