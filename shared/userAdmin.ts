@@ -12,6 +12,24 @@ import { hasAnyRole, normalizeExtraRoles, type RoleAwareUser } from "./roles";
 /** 管理类角色：系统至少要保留一个，且管理员不能把自己降级 */
 export const ADMIN_ROLES = ["graduate_admin", "admin"] as const;
 
+/** 手机号掩码（会议纪要安全底线：页面与接口响应均不得出现完整手机号）：保留前 3 后 4 */
+export function maskPhone(phone?: string | null): string | null {
+  const p = (phone || "").trim();
+  if (!p) return null;
+  if (p.length >= 7) return p.slice(0, 3) + "****" + p.slice(-4);
+  return p.slice(0, 1) + "****";
+}
+
+/**
+ * 邮箱里的手机号形态也要打码：部分老师用手机号注册邮箱（139xxxx1234@163.com），
+ * email 字段会变相泄露手机号。仅替换邮箱中恰好为 11 位手机号的前缀，其余邮箱原样。
+ */
+export function maskPhoneInEmail(email?: string | null): string | null {
+  const e = (email || "").trim();
+  if (!e) return null;
+  return e.replace(/(?<![\d@.])(1[3-9]\d)\d{4}(\d{4})(?=@)/, "$1****$2");
+}
+
 /** 受限岗位：必须有所属学院才能成立（院级秘书 / 院级督导） */
 export const COLLEGE_SCOPED_ROLES = ["college_secretary"] as const;
 
