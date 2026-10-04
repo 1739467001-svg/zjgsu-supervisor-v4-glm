@@ -6,7 +6,45 @@
  * 系统里最后一个管理员降级。三条硬约束都收敛在 validateUserAdminChange。
  */
 import { describe, expect, it } from "vitest";
-import { validateUserAdminChange, mergeUserChange, type UserAdminTarget } from "./userAdmin";
+import { maskPhone, maskPhoneInEmail, validateUserAdminChange, mergeUserChange, type UserAdminTarget } from "./userAdmin";
+
+describe("maskPhone（敏感信息脱敏）", () => {
+  it("11 位手机号保留前 3 后 4，中间打码", () => {
+    expect(maskPhone("13958160047")).toBe("139****0047");
+  });
+
+  it("短号码（办公电话）至少掩去末段", () => {
+    const masked = maskPhone("88321")!;
+    expect(masked.startsWith("8")).toBe(true);
+    expect(masked).toContain("****");
+    expect(masked).not.toBe("88321");
+  });
+
+  it("空值返回 null，页面显示为 -", () => {
+    expect(maskPhone(null)).toBeNull();
+    expect(maskPhone("")).toBeNull();
+    expect(maskPhone("  ")).toBeNull();
+  });
+});
+
+describe("maskPhoneInEmail（邮箱中的手机号形态）", () => {
+  it("手机号前缀邮箱打码中间四位，保留域名", () => {
+    expect(maskPhoneInEmail("13554693638@163.com")).toBe("135****3638@163.com");
+  });
+
+  it("普通邮箱原样保留", () => {
+    expect(maskPhoneInEmail("jhli@mail.zjgsu.edu.cn")).toBe("jhli@mail.zjgsu.edu.cn");
+  });
+
+  it("普通数字前缀（非手机号）不受影响", () => {
+    expect(maskPhoneInEmail("1234567@qq.com")).toBe("1234567@qq.com");
+    expect(maskPhoneInEmail("20231070001@pop.zjgsu.edu.cn")).toBe("20231070001@pop.zjgsu.edu.cn");
+  });
+
+  it("空值返回 null", () => {
+    expect(maskPhoneInEmail(null)).toBeNull();
+  });
+});
 
 const 管理员 = (id: number): UserAdminTarget =>
   ({ id, role: "graduate_admin", extraRoles: null, college: "研究生院", supervisorScope: "school" }) as UserAdminTarget;

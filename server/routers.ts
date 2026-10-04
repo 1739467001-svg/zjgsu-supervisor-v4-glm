@@ -55,7 +55,7 @@ import {
 } from "./db";
 import { canViewEvaluation, canMutateListeningPlan } from "@shared/evaluationAccess";
 import { isWritableSemester } from "@shared/semesterArchive";
-import { validateUserAdminChange, type ProposedUserAdminChange } from "@shared/userAdmin";
+import { maskPhone, maskPhoneInEmail, validateUserAdminChange, type ProposedUserAdminChange } from "@shared/userAdmin";
 import { sdk } from "./_core/sdk";
 import { generateEvaluationExcel, generateEvaluationPdfHtml, generateEvaluationPdfBuffer } from "./exportUtils";
 
@@ -763,7 +763,14 @@ export const appRouter = router({
   // ============================================================
   users: router({
     list: adminProcedure.query(async () => {
-      return getAllUsers();
+      // 会议纪要安全底线：前端页面不得出现完整手机号。接口层直接返回掩码
+      // （防扒接口），完整号码仅存于数据库与通讯录原件。
+      // email 中用手机号做前缀的（139xxxx1234@163.com）同样打码。
+      return (await getAllUsers()).map((u) => ({
+        ...u,
+        phone: maskPhone(u.phone),
+        email: maskPhoneInEmail(u.email),
+      }));
     }),
 
     // 授权变更记录（升级方案 3.2：谁在何时把谁的什么权限改成了什么）
