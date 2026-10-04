@@ -113,6 +113,26 @@ check("主管建新学期", semByAdmin.ok, semByAdmin.ok ? "" : semByAdmin.messa
 const anon = await call(null, "users.list");
 check("未登录访问用户列表被拒", !anon.ok, anon.status);
 
+// ── 导出 Excel 与打印的授权矩阵 ──
+const expAdmin = await call("T9001", "evaluations.exportToExcel", {}, "mutation");
+check("主管导出全校评价 Excel", expAdmin.ok && typeof expAdmin.data?.buffer === "string" && expAdmin.data.buffer.length > 100, expAdmin.ok ? `filename=${expAdmin.data?.filename}` : expAdmin.status);
+const expExp = await call("T9003", "evaluations.exportToExcel", {}, "mutation");
+check("院级督导导出本人评价 Excel", expExp.ok && typeof expExp.data?.buffer === "string", expExp.ok ? "" : expExp.status);
+const expSec = await call("T9002", "evaluations.exportToExcel", {}, "mutation");
+check("秘书导出本院评价 Excel", expSec.ok && typeof expSec.data?.buffer === "string", expSec.ok ? "" : expSec.status);
+const expUser = await call("T9005", "evaluations.exportToExcel", {}, "mutation");
+check("普通用户导出被拒", !expUser.ok, expUser.status);
+
+const evalIdForPrint = (await call("T9003", "evaluations.myEvaluations", {})).data?.[0]?.id;
+if (evalIdForPrint) {
+  const printOwn = await fetch(`${BASE.replace("/api/trpc", "")}/api/print/evaluation/${evalIdForPrint}`, { headers: { cookie: jars["T9003"] } });
+  check("督导打印本人评价页", printOwn.status === 200, String(printOwn.status));
+  const printOther = await fetch(`${BASE.replace("/api/trpc", "")}/api/print/evaluation/${evalIdForPrint}`, { headers: { cookie: jars["T9004"] } });
+  check("校级督导打印他人评价被拒", printOther.status >= 400, String(printOther.status));
+  const printAnon = await fetch(`${BASE.replace("/api/trpc", "")}/api/print/evaluation/${evalIdForPrint}`);
+  check("未登录打印被拒", printAnon.status >= 400, String(printAnon.status));
+}
+
 // ── 课表上传：双入口校验 + 预览不写库 + 确认导入 ──
 import * as XLSX from "xlsx";
 function buildStandardXlsx() {
