@@ -19,6 +19,7 @@ import CourseProgress from "./pages/CourseProgress";
 import UploadCourses from "./pages/UploadCourses";
 import { useAuth } from "./_core/hooks/useAuth";
 import { SemesterSelectionProvider } from "./contexts/SemesterSelection";
+import { ActiveRoleProvider } from "./hooks/useActiveRole";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, loading } = useAuth();
@@ -32,7 +33,7 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
     window.location.href = "/login";
     return null;
   }
-  return <SemesterSelectionProvider><Component /></SemesterSelectionProvider>;
+  return <SemesterSelectionProvider><ActiveRoleProvider><Component /></ActiveRoleProvider></SemesterSelectionProvider>;
 }
 
 function Router() {

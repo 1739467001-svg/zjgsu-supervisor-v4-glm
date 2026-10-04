@@ -263,3 +263,24 @@ export const notifications = mysqlTable("notifications", {
 
 export type Notification = typeof notifications.$inferSelect;
 export type InsertNotification = typeof notifications.$inferInsert;
+
+// ============================================================
+// 用户角色管理审计日志（升级方案 3.2：保留必要的授权变更记录）
+// ============================================================
+export const userAdminLogs = mysqlTable("user_admin_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  // 执行变更的管理员
+  adminId: int("adminId").notNull(),
+  adminName: varchar("adminName", { length: 128 }),
+  // 被变更的账号
+  targetUserId: int("targetUserId").notNull(),
+  targetName: varchar("targetName", { length: 128 }),
+  // 变更字段：role=主角色, extraRoles=附加角色, college=所属学院, supervisorScope=督导范围
+  action: mysqlEnum("action", ["role", "extraRoles", "college", "supervisorScope"]).notNull(),
+  // 人读得懂的变更描述，如「主角色：督导专家 → 研究生院主管」
+  detail: varchar("detail", { length: 512 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type UserAdminLog = typeof userAdminLogs.$inferSelect;
+export type InsertUserAdminLog = typeof userAdminLogs.$inferInsert;

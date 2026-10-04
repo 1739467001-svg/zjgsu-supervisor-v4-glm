@@ -95,4 +95,25 @@ describe("canMutateListeningPlan", () => {
     expect(canMutateListeningPlan(user({ id: 1, role: "graduate_admin" }), { supervisorId: 999 })).toBe(true);
     expect(canMutateListeningPlan(user({ id: 1, role: "admin" }), { supervisorId: 999 })).toBe(true);
   });
+
+  it("学院分管领导（督导+秘书双身份）：本院他人评价可查，跨院拒绝；他人计划不可改", () => {
+    const leader = user({
+      id: 1,
+      role: "supervisor_expert",
+      extraRoles: ["college_secretary"],
+      supervisorScope: "college",
+      college: "法学院",
+    });
+    expect(canViewEvaluation(leader, 我的评价, 法学院的课)).toBe(true);
+    expect(canViewEvaluation(leader, 别人的评价, 法学院的课)).toBe(true);
+    expect(canViewEvaluation(leader, 别人的评价, 经济学院的课)).toBe(false);
+    expect(canMutateListeningPlan(leader, { supervisorId: 999 })).toBe(false);
+    expect(canMutateListeningPlan(leader, { supervisorId: 1 })).toBe(true);
+  });
+
+  it("主管兼督导（傅培华组合）：全校他人评价可查，他人计划仍可清理", () => {
+    const adminSup = user({ id: 1, role: "graduate_admin", extraRoles: ["supervisor_expert"] });
+    expect(canViewEvaluation(adminSup, 别人的评价, 经济学院的课)).toBe(true);
+    expect(canMutateListeningPlan(adminSup, { supervisorId: 999 })).toBe(true);
+  });
 });

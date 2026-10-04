@@ -127,7 +127,17 @@ describe.skipIf(!TEST_URL)("数据库集成测试", () => {
   // ============================================================
   // 统计仪表盘：三张学院图表必须出自同一份数据
   // ============================================================
+  // 注意：迁移 0006 会在任何按正规流程建出的库里回填一个激活学期，
+  // 而 getAdminStats 只统计激活学期的课程与评价 —— 所以这里播种时
+  // 必须带上激活学期的 semesterId，否则统计恒为空（此前该用例从未真正运行过）。
   describe("统计仪表盘的学院口径", () => {
+    let activeSemesterId: number;
+
+    beforeAll(async () => {
+      const active = await dbMod.getActiveSemester();
+      activeSemesterId = active!.id;
+    });
+
     beforeEach(async () => {
       await db.delete(schema.courseEvaluations);
       await db.delete(schema.courses);
@@ -137,6 +147,7 @@ describe.skipIf(!TEST_URL)("数据库集成测试", () => {
       const [res] = await db.insert(schema.courses).values({
         college, courseName: `${college}的课`, teacher: "某老师",
         weekday: "星期一", period: "第1-2节", classroom: "A101",
+        semesterId: activeSemesterId,
       });
       return Number(res.insertId);
     }
@@ -144,6 +155,7 @@ describe.skipIf(!TEST_URL)("数据库集成测试", () => {
     async function seedEval(courseId: number, overallScore: number | null) {
       await db.insert(schema.courseEvaluations).values({
         courseId, supervisorId: 1, status: "submitted", overallScore,
+        semesterId: activeSemesterId,
       });
     }
 
@@ -163,6 +175,19 @@ describe.skipIf(!TEST_URL)("数据库集成测试", () => {
       expect(blank.count).toBe(2);
       expect(blank.scoredCount).toBe(0);
       expect(blank.avgScore).toBeNull();
+    });
+
+    it("学院范围统计：括号别名能解析到课表简称，范围外学院不出现", async () => {
+      const a = await seedCourse("经济学院");
+      await seedEval(a, 4);
+      const b = await seedCourse("法学院");
+      await seedEval(b, 5);
+
+      const stats = await dbMod.getAdminStats(undefined, "法学院（知识产权学院）");
+      expect(stats!.collegeStats.map((r: any) => r.college)).toEqual(["法学院"]);
+      expect(stats!.totalCourses).toBe(1);
+      expect(stats!.totalEvaluations).toBe(1);
+      expect(stats!.semesterColleges.map((r: any) => r.college)).toEqual(["法学院"]);
     });
 
     it("各学院评价次数之和等于评价总数，一条都不会漏", async () => {

@@ -1,20 +1,11 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useActiveRole } from "@/hooks/useActiveRole";
-import { hasAnyRole, getSupervisorScopeLabel, isSupervisorRole } from "@shared/roles";
+import { hasAnyRole, getRoleViewLabel, getSupervisorScopeLabel, isSupervisorRole } from "@shared/roles";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { BookOpen, ClipboardList, CheckCircle, Bell, TrendingUp, Users, Building2, Calendar } from "lucide-react";
 import { useLocation } from "wouter";
 import { useSemesterSelection } from "@/contexts/SemesterSelection";
-
-const ROLE_LABELS: Record<string, string> = {
-  supervisor_expert: "督导专家",
-  supervisor_leader: "督导组长",
-  college_secretary: "学院教学秘书",
-  graduate_admin: "研究生院主管",
-  admin: "系统管理员",
-  user: "普通用户",
-};
 
 const ROLE_COLORS: Record<string, string> = {
   supervisor_expert: "oklch(0.35 0.13 245)",
@@ -83,7 +74,7 @@ export default function Dashboard() {
             <h1 className="text-2xl font-bold mb-1">{user?.name || "老师"}</h1>
             <div className="flex items-center gap-2 mt-2">
               <span className="px-2.5 py-0.5 rounded-full text-xs font-medium" style={{ background: "oklch(1 0 0 / 0.2)", backdropFilter: "blur(4px)" }}>
-                {ROLE_LABELS[role] || role}
+                {getRoleViewLabel(role, user)}
                 {/* 督导必须看得出自己是校级还是院级：只标一个学院名会让校级督导误以为被限制在本学院 */}
                 {isSupervisorRole(role) && scopeLabel ? `（${scopeLabel}）` : ""}
               </span>

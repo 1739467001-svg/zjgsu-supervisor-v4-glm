@@ -30,6 +30,14 @@ const ROLE_CONFIG: Record<string, { label: string; icon: React.ReactNode; color:
 
 const SUPERVISOR_ROLES = ["supervisor_expert", "supervisor_leader"];
 
+/** 前端脱敏（会议纪要安全底线：页面上不得出现完整手机号）：保留前 3 后 4，中间打码 */
+function maskPhone(phone?: string | null): string {
+  const p = (phone || "").trim();
+  if (!p) return "-";
+  if (p.length >= 7) return p.slice(0, 3) + "****" + p.slice(-4);
+  return p.slice(0, 1) + "****";
+}
+
 export default function UserManagement() {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
@@ -49,11 +57,13 @@ export default function UserManagement() {
   const utils = trpc.useUtils();
 
   const { data: users, isLoading } = trpc.users.list.useQuery();
+  const { data: auditLogs } = trpc.users.getAuditLog.useQuery();
 
   const updateRoleMutation = trpc.users.updateRole.useMutation({
     onSuccess: () => {
       toast.success("角色已更新");
       utils.users.list.invalidate();
+      utils.users.getAuditLog.invalidate();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -90,21 +100,23 @@ export default function UserManagement() {
 
   const handleSaveEdit = async () => {
     if (!editDialog.userId) return;
+    const college = editDialog.college.trim() || null;
+    // 与服务端 shared/userAdmin.ts 同一条规则：受限岗位（院级督导/学院秘书）必须有学院，
+    // 不再静默降级为校级——那会让管理员以为设了院级、实际却是全校范围
+    const scope: SupervisorScope = editDialog.supervisorScope === "college" && college ? "college" : "school";
+    if (editDialog.supervisorScope === "college" && !college) {
+      toast.error("院级督导必须填写所属学院，请补全学院或把范围改为校级");
+      return;
+    }
     try {
-      const college = editDialog.college.trim() || null;
-      // 院级范围必须有学院才成立，否则该督导会既受限又无范围可依 —— 直接降级为校级
-      const scope: SupervisorScope = editDialog.supervisorScope === "college" && college ? "college" : "school";
       await Promise.all([
         updateExtraRolesMutation.mutateAsync({ userId: editDialog.userId, extraRoles: editDialog.extraRoles as any }),
         updateCollegeMutation.mutateAsync({ userId: editDialog.userId, college }),
         updateScopeMutation.mutateAsync({ userId: editDialog.userId, scope }),
       ]);
-      if (scope !== editDialog.supervisorScope) {
-        toast.success("已保存（未填学院，督导范围按校级处理）");
-      } else {
-        toast.success("已保存");
-      }
+      toast.success("已保存");
       utils.users.list.invalidate();
+      utils.users.getAuditLog.invalidate();
       setEditDialog({ open: false, extraRoles: [], college: "", supervisorScope: "school" });
     } catch (err: any) {
       toast.error(err.message || "保存失败");
@@ -207,7 +219,7 @@ export default function UserManagement() {
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-xs" style={{ color: "oklch(0.52 0.025 240)" }}>{user.phone || "-"}</td>
+                        <td className="px-4 py-3 text-xs" style={{ color: "oklch(0.52 0.025 240)" }}>{maskPhone(user.phone)}</td>
                         <td className="px-4 py-3">
                           <span className="flex items-center gap-1 w-fit px-2 py-0.5 rounded-full text-xs font-medium" style={{ background: roleConf.bg, color: roleConf.color }}>
                             {roleConf.icon}{roleConf.label}
@@ -255,6 +267,31 @@ export default function UserManagement() {
             </div>
           </div>
         )}
+        {/* 授权变更记录（谁在何时把谁的什么权限改成了什么） */}
+        <div className="bg-white rounded-xl p-4" style={{ border: "1px solid oklch(0.90 0.01 240)" }}>
+          <div className="flex items-center gap-2 mb-3">
+            <Shield className="w-4 h-4" style={{ color: "oklch(0.35 0.13 245)" }} />
+            <h2 className="text-sm font-semibold" style={{ color: "oklch(0.18 0.025 240)" }}>最近授权变更</h2>
+            <span className="text-xs" style={{ color: "oklch(0.52 0.025 240)" }}>角色、学院、督导范围的每次修改都会留痕，最多保留 50 条</span>
+          </div>
+          {!auditLogs || auditLogs.length === 0 ? (
+            <p className="text-xs" style={{ color: "oklch(0.65 0.02 240)" }}>暂无变更记录。</p>
+          ) : (
+            <ul className="space-y-1.5 max-h-64 overflow-y-auto">
+              {auditLogs.map((log) => (
+                <li key={log.id} className="text-xs flex flex-wrap items-baseline gap-x-2" style={{ color: "oklch(0.35 0.02 240)" }}>
+                  <span style={{ color: "oklch(0.52 0.025 240)" }}>
+                    {new Date(log.createdAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                  <span className="font-medium">{log.adminName || "管理员"}</span>
+                  <span style={{ color: "oklch(0.52 0.025 240)" }}>调整了</span>
+                  <span className="font-medium">{log.targetName || `用户#${log.targetUserId}`}</span>
+                  <span>{log.detail}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
 
       {/* 附加角色 / 督导范围 设置弹窗 */}
@@ -297,7 +334,7 @@ export default function UserManagement() {
               </Select>
               {editDialog.supervisorScope === "college" && !editDialog.college.trim() && (
                 <p className="text-xs" style={{ color: "oklch(0.55 0.14 30)" }}>
-                  院级督导必须填写所属学院，否则保存时会按校级处理。
+                  院级督导必须填写所属学院，未填写时无法保存；请补全学院或把范围改为校级。
                 </p>
               )}
             </div>

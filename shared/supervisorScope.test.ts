@@ -6,7 +6,7 @@
  * 现改为由独立字段 supervisorScope 显式决定。
  */
 import { describe, expect, it } from "vitest";
-import { isCollegeScopedSupervisor, getScopedCollege, getSupervisorRoleLabel, getSupervisorScopeLabel, getEffectiveRoles, hasAnyRole } from "./roles";
+import { isCollegeScopedSupervisor, getScopedCollege, getRoleViewLabel, getSupervisorRoleLabel, getSupervisorScopeLabel, getEffectiveRoles, hasAnyRole } from "./roles";
 
 const HUMANITIES = "人文学院";
 
@@ -112,5 +112,23 @@ describe("extraRoles 容错（数组或 JSON 字符串）", () => {
   it("JSON 字符串形式的督导附加角色也能享受校级默认范围", () => {
     const u = { role: "college_secretary", extraRoles: '["supervisor_expert"]', college: "人文学院", supervisorScope: "school" };
     expect(getSupervisorScopeLabel(u)).toBe("校级");
+  });
+});
+
+describe("getRoleViewLabel（双身份视图标签）", () => {
+  it("分管领导切到秘书视图显示「学院管理」，不把领导写成秘书", () => {
+    const leader = { role: "supervisor_expert", extraRoles: ["college_secretary"], college: "金融学院", supervisorScope: "college" };
+    expect(getRoleViewLabel("college_secretary", leader)).toBe("学院管理");
+    expect(getRoleViewLabel("supervisor_expert", leader)).toBe("督导专家");
+  });
+
+  it("纯教学秘书仍显示「学院教学秘书」", () => {
+    const secretary = { role: "college_secretary", extraRoles: null, college: "金融学院", supervisorScope: "college" };
+    expect(getRoleViewLabel("college_secretary", secretary)).toBe("学院教学秘书");
+  });
+
+  it("无用户上下文或未知角色按普通角色名显示", () => {
+    expect(getRoleViewLabel("college_secretary", null)).toBe("学院教学秘书");
+    expect(getRoleViewLabel("graduate_admin", null)).toBe("研究生院主管");
   });
 });

@@ -33,13 +33,13 @@ beforeEach(() => {
 describe("学期浏览隔离", () => {
   it("省略学期只查当前，不回退为所有历史", async () => {
     await caller().stats.adminDashboard();
-    expect(db.getAdminStats).toHaveBeenCalledWith(2);
+    expect(db.getAdminStats).toHaveBeenCalledWith(2, undefined);
   });
   it("历史仪表盘与覆盖率均传递同一学期", async () => {
     await caller().stats.adminDashboard({ semesterId: 1 });
     await caller().stats.allCollegeProgress({ semesterId: 1 });
-    expect(db.getAdminStats).toHaveBeenCalledWith(1);
-    expect(db.getAllCollegeEvaluationProgress).toHaveBeenCalledWith(1);
+    expect(db.getAdminStats).toHaveBeenCalledWith(1, undefined);
+    expect(db.getAllCollegeEvaluationProgress).toHaveBeenCalledWith(undefined, 1);
     expect(db.setActiveSemester).not.toHaveBeenCalled();
   });
   it("不存在的学期不能静默查询全库", async () => {

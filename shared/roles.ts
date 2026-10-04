@@ -138,6 +138,18 @@ export function getRoleLabel(role?: string | null): string {
   return ROLE_LABELS[role] || role;
 }
 
+/**
+ * 身份视图的显示名。
+ *
+ * 双身份的学院分管领导切到教学秘书视图时显示「学院管理」——底层复用
+ * 教学秘书的本院只读能力，但职级标签不应把领导写成秘书；
+ * 纯教学秘书账号不受影响，仍显示「学院教学秘书」。
+ */
+export function getRoleViewLabel(role: string, user?: RoleAwareUser | null): string {
+  if (role === "college_secretary" && hasAnyRole(user, SUPERVISOR_ROLES)) return "学院管理";
+  return getRoleLabel(role);
+}
+
 /** 该用户作为督导的范围；非督导角色返回 undefined */
 export function getSupervisorScopeLabel(user?: RoleAwareUser | null): "校级" | "院级" | undefined {
   if (!hasAnyRole(user, SUPERVISOR_ROLES)) return undefined;
