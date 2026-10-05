@@ -96,7 +96,7 @@ check("主管自我降级被拒", !selfDemote.ok, (selfDemote.message ?? "").sli
 const audit = await call("T9001", "users.getAuditLog");
 check("审计日志接口可用", audit.ok && Array.isArray(audit.data), `${audit.data?.length ?? 0} 条`);
 const auditBySec = await call("T9002", "users.getAuditLog");
-check("秘书访问审计日志被拒", !auditBySec.ok, auditBySec.status);
+check("秘书可查本院授权变更留痕（旧断言更新）", auditBySec.ok && Array.isArray(auditBySec.data), `${auditBySec.data?.length ?? 0} 条`);
 
 // 统计仪表盘口径：主管=全校（2 学院）；秘书/分管领导=本院（仅经济学院）；纯院级督导=拒绝
 const stats = await call("T9001", "stats.adminDashboard", {});
@@ -167,6 +167,27 @@ const afterCount = (await call("T9001", "courses.list", {})).data?.total;
 check("确认导入成功且课程数+1", upConfirm.status === 200 && upConfirm.body?.success === true && afterCount === beforeCount + 1, `before=${beforeCount} after=${afterCount}`);
 const upPreviewNoWrite = await upload("T9001", "standard", "preview");
 check("预览不重复写入(合并后无新增)", upPreviewNoWrite.body?.preview?.inserted === 0, `inserted=${upPreviewNoWrite.body?.preview?.inserted}`);
+
+// ── 账号管理（上线前会议补充：秘书可重置本院账号密码；主管可重置任意账号）──
+const userListSec = await call("T9002", "users.list", {});
+const secVisible = userListSec.ok ? userListSec.data : [];
+check("秘书账号列表=仅本院账号(经济学院)", userListSec.ok && secVisible.length >= 2 && secVisible.every((u) => (u.college ?? "").includes("经济学院")), `数量=${secVisible.length}`);
+const userListAdmin = await call("T9001", "users.list", {});
+check("主管账号列表=全校", userListAdmin.ok && userListAdmin.data?.length >= 5, `数量=${userListAdmin.data?.length}`);
+const t9003Id = userListAdmin.data?.find((u) => u.employeeId === "T9003")?.id;
+const t9004Id = userListAdmin.data?.find((u) => u.employeeId === "T9004")?.id;
+const resetOwn = await call("T9002", "users.resetPassword", { userId: t9003Id, newPassword: "smoke666" }, "mutation");
+check("秘书重置本院账号密码", resetOwn.ok, resetOwn.ok ? "" : resetOwn.message);
+const resetCross = await call("T9002", "users.resetPassword", { userId: t9004Id, newPassword: "smoke666" }, "mutation");
+check("秘书重置外院账号密码被拒", !resetCross.ok, (resetCross.message ?? "").slice(0, 30));
+const resetByExp = await call("T9003", "users.resetPassword", { userId: t9003Id, newPassword: "smoke666" }, "mutation");
+check("院级督导重置密码被拒", !resetByExp.ok, resetByExp.status);
+const roleBySec = await call("T9002", "users.updateRole", { userId: t9003Id, role: "graduate_admin" }, "mutation");
+check("秘书修改他人角色被拒（权限归主管）", !roleBySec.ok, roleBySec.status);
+const auditSec = await call("T9002", "users.getAuditLog", {});
+check("秘书可查本院授权变更留痕", auditSec.ok && Array.isArray(auditSec.data), `${auditSec.data?.length ?? 0} 条`);
+// 恢复 T9003 密码为工号，保证套件可重复执行
+await call("T9002", "users.resetPassword", { userId: t9003Id, newPassword: "T9003" }, "mutation");
 
 const passed = results.filter(r=>r.pass).length;
 console.log(`\n===== L3 冒烟结果：${passed}/${results.length} 通过 =====`);

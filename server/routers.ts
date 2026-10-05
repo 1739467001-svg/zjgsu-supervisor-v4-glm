@@ -180,7 +180,7 @@ async function guardUserAdminChange(actorId: number, userId: number, change: Pro
 async function recordUserAdminChange(
   actor: { id: number; name?: string | null },
   target: { id: number; name?: string | null },
-  action: "role" | "extraRoles" | "college" | "supervisorScope",
+  action: "role" | "extraRoles" | "college" | "supervisorScope" | "passwordReset",
   detail: string
 ) {
   await logUserAdminChange({
@@ -762,20 +762,83 @@ export const appRouter = router({
   // 用户管理（研究生院主管）
   // ============================================================
   users: router({
-    list: adminProcedure.query(async () => {
+    // 账号列表：主管/系统管理员=全校；学院教学秘书（含分管领导双身份）=本院账号
+    // （上线前会议：院级教学秘书可以调整本院底下的账号，权限按学院范围收窄）
+    list: protectedProcedure.query(async ({ ctx }) => {
+      const user = ctx.user!;
+      const isAdmin = hasAnyRole(user, ["graduate_admin", "admin"]);
+      const isSecretary = hasAnyRole(user, ["college_secretary"]);
+      if (!isAdmin && !isSecretary) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "无账号管理权限" });
+      }
+      let scopedCollege: string | undefined;
+      if (!isAdmin) {
+        try {
+          scopedCollege = resolveScopedCollege(user);
+        } catch (err) {
+          if (err instanceof MissingCollegeScopeError) throw new TRPCError({ code: "FORBIDDEN", message: err.message });
+          throw err;
+        }
+      }
+      const all = await getAllUsers();
+      const visible = scopedCollege ? all.filter((u) => u.college && isCollegeInScope(scopedCollege, u.college)) : all;
       // 会议纪要安全底线：前端页面不得出现完整手机号。接口层直接返回掩码
       // （防扒接口），完整号码仅存于数据库与通讯录原件。
       // email 中用手机号做前缀的（139xxxx1234@163.com）同样打码。
-      return (await getAllUsers()).map((u) => ({
+      return visible.map((u) => ({
         ...u,
         phone: maskPhone(u.phone),
         email: maskPhoneInEmail(u.email),
       }));
     }),
 
+    // 重置他人密码（上线前会议：研究生院主管可给其他账号设置修改密码；
+    // 学院教学秘书可重置本院账号）。新密码必填（≥6 位），操作写入审计日志。
+    resetPassword: protectedProcedure
+      .input(z.object({ userId: z.number(), newPassword: z.string().min(6, "新密码至少 6 位") }))
+      .mutation(async ({ input, ctx }) => {
+        const actor = ctx.user!;
+        const isAdmin = hasAnyRole(actor, ["graduate_admin", "admin"]);
+        const isSecretary = hasAnyRole(actor, ["college_secretary"]);
+        if (!isAdmin && !isSecretary) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "无重置密码权限" });
+        }
+        const target = await getUserById(input.userId);
+        if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "用户不存在" });
+        if (!isAdmin) {
+          const scopedCollege = resolveScopedCollege(actor);
+          if (!scopedCollege) throw new TRPCError({ code: "FORBIDDEN", message: "学院范围未配置，请联系研究生院主管" });
+          if (!target.college || !isCollegeInScope(scopedCollege, target.college)) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "只能重置本院账号的密码" });
+          }
+        }
+        await updateUserPassword(target.id, input.newPassword);
+        await recordUserAdminChange(
+          { id: actor.id, name: actor.name },
+          { id: target.id, name: target.name },
+          "passwordReset",
+          `重置密码（新密码由操作人设置）`
+        );
+        return { success: true };
+      }),
+
     // 授权变更记录（升级方案 3.2：谁在何时把谁的什么权限改成了什么）
-    getAuditLog: adminProcedure.query(async () => {
-      return getRecentUserAdminLogs();
+    // 主管看全部；教学秘书看本院相关记录
+    getAuditLog: protectedProcedure.query(async ({ ctx }) => {
+      const user = ctx.user!;
+      const logs = await getRecentUserAdminLogs();
+      if (hasAnyRole(user, ["graduate_admin", "admin"])) return logs;
+      if (!hasAnyRole(user, ["college_secretary"])) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "无权限" });
+      }
+      const scopedCollege = resolveScopedCollege(user);
+      if (!scopedCollege) throw new TRPCError({ code: "FORBIDDEN", message: "学院范围未配置，请联系研究生院主管" });
+      const targetIds = new Set(
+        (await getAllUsers())
+          .filter((u) => u.college && isCollegeInScope(scopedCollege, u.college))
+          .map((u) => u.id)
+      );
+      return logs.filter((l) => targetIds.has(l.targetUserId));
     }),
 
     updateRole: adminProcedure

@@ -1,0 +1,1 @@
+ALTER TABLE `user_admin_logs` MODIFY COLUMN `action` enum('role','extraRoles','college','supervisorScope','passwordReset') NOT NULL;

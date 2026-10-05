@@ -1,6 +1,8 @@
 import { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { hasAnyRole } from "@shared/roles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -58,6 +60,20 @@ export default function UserManagement() {
 
   const { data: users, isLoading } = trpc.users.list.useQuery();
   const { data: auditLogs } = trpc.users.getAuditLog.useQuery();
+  const { user: authUser } = useAuth();
+  // 有限视图：学院教学秘书（无主管/系统管理员角色）只能查看本院账号并重置密码，
+  // 不能改角色/学院/督导范围（那是研究生院主管的职权）
+  const limitedView = !hasAnyRole(authUser as any, ["graduate_admin", "admin"]) && hasAnyRole(authUser as any, ["college_secretary"]);
+
+  const [resetDialog, setResetDialog] = useState<{ open: boolean; userId?: number; name?: string; pwd: string }>({ open: false, pwd: "" });
+  const resetPwdMutation = trpc.users.resetPassword.useMutation({
+    onSuccess: () => {
+      toast.success("密码已重置");
+      utils.users.getAuditLog.invalidate();
+      setResetDialog({ open: false, pwd: "" });
+    },
+    onError: (err) => toast.error(err.message),
+  });
 
   const updateRoleMutation = trpc.users.updateRole.useMutation({
     onSuccess: () => {
@@ -138,8 +154,12 @@ export default function UserManagement() {
     <DashboardLayout>
       <div className="p-4 sm:p-6 space-y-5 page-transition">
         <div>
-          <h1 className="text-xl font-bold" style={{ color: "oklch(0.18 0.025 240)" }}>用户管理</h1>
-          <p className="text-sm mt-0.5" style={{ color: "oklch(0.52 0.025 240)" }}>管理系统用户角色与权限</p>
+          <h1 className="text-xl font-bold" style={{ color: "oklch(0.18 0.025 240)" }}>{limitedView ? "账号管理（本院）" : "用户管理"}</h1>
+          <p className="text-sm mt-0.5" style={{ color: "oklch(0.52 0.025 240)" }}>
+            {limitedView
+              ? "查看本院账号并重置密码；角色与督导范围由研究生院主管统一管理"
+              : "管理系统用户角色与权限"}
+          </p>
         </div>
 
         {/* 角色统计 */}
@@ -238,22 +258,38 @@ export default function UserManagement() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1.5">
-                            <Select
-                              value={user.role || "user"}
-                              onValueChange={(newRole) => updateRoleMutation.mutate({ userId: user.id, role: newRole as any })}
-                            >
-                              <SelectTrigger className="h-7 w-28 text-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {Object.entries(ROLE_CONFIG).map(([role, config]) => (
-                                  <SelectItem key={role} value={role} className="text-xs">{config.label}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <Button variant="outline" size="sm" className="h-7 w-7 p-0" title="设置附加角色 / 督导范围" onClick={() => openEditDialog(user)}>
-                              <Settings2 className="w-3.5 h-3.5" />
-                            </Button>
+                            {limitedView ? (
+                              <>
+                                <span className="flex items-center gap-1 w-fit px-2 py-0.5 rounded-full text-xs font-medium" style={{ background: roleConf.bg, color: roleConf.color }}>
+                                  {roleConf.icon}{roleConf.label}
+                                </span>
+                                <Button variant="outline" size="sm" className="h-7 px-2 text-xs" title="重置该账号密码" onClick={() => setResetDialog({ open: true, userId: user.id, name: user.name || "", pwd: "" })}>
+                                  重置密码
+                                </Button>
+                              </>
+                            ) : (
+                              <>
+                                <Select
+                                  value={user.role || "user"}
+                                  onValueChange={(newRole) => updateRoleMutation.mutate({ userId: user.id, role: newRole as any })}
+                                >
+                                  <SelectTrigger className="h-7 w-28 text-xs">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {Object.entries(ROLE_CONFIG).map(([role, config]) => (
+                                      <SelectItem key={role} value={role} className="text-xs">{config.label}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <Button variant="outline" size="sm" className="h-7 w-7 p-0" title="设置附加角色 / 督导范围" onClick={() => openEditDialog(user)}>
+                                  <Settings2 className="w-3.5 h-3.5" />
+                                </Button>
+                                <Button variant="outline" size="sm" className="h-7 px-2 text-xs" title="重置该账号密码" onClick={() => setResetDialog({ open: true, userId: user.id, name: user.name || "", pwd: "" })}>
+                                  重置密码
+                                </Button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -272,7 +308,7 @@ export default function UserManagement() {
           <div className="flex items-center gap-2 mb-3">
             <Shield className="w-4 h-4" style={{ color: "oklch(0.35 0.13 245)" }} />
             <h2 className="text-sm font-semibold" style={{ color: "oklch(0.18 0.025 240)" }}>最近授权变更</h2>
-            <span className="text-xs" style={{ color: "oklch(0.52 0.025 240)" }}>角色、学院、督导范围的每次修改都会留痕，最多保留 50 条</span>
+            <span className="text-xs" style={{ color: "oklch(0.52 0.025 240)" }}>角色、学院、督导范围、密码重置的每次操作都会留痕，最多保留 50 条</span>
           </div>
           {!auditLogs || auditLogs.length === 0 ? (
             <p className="text-xs" style={{ color: "oklch(0.65 0.02 240)" }}>暂无变更记录。</p>
@@ -356,6 +392,41 @@ export default function UserManagement() {
               style={{ background: "oklch(0.35 0.13 245)" }}
             >
               保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 重置密码弹窗（主管=任意账号；教学秘书=本院账号） */}
+      <Dialog open={resetDialog.open} onOpenChange={(open) => setResetDialog((p) => ({ ...p, open }))}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>重置密码</DialogTitle>
+            <DialogDescription>
+              为 {resetDialog.name || "该用户"} 设置新密码（至少 6 位）。设置后请告知本人用新密码登录；操作将记入授权变更留痕。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="new-password" className="text-sm">新密码</Label>
+            <Input
+              id="new-password"
+              type="text"
+              placeholder="至少 6 位"
+              value={resetDialog.pwd}
+              onChange={(e) => setResetDialog((p) => ({ ...p, pwd: e.target.value }))}
+            />
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setResetDialog({ open: false, pwd: "" })}>取消</Button>
+            <Button
+              disabled={resetDialog.pwd.length < 6 || resetPwdMutation.isPending}
+              onClick={() => {
+                if (!resetDialog.userId) return;
+                resetPwdMutation.mutate({ userId: resetDialog.userId, newPassword: resetDialog.pwd });
+              }}
+              style={{ background: "oklch(0.35 0.13 245)" }}
+            >
+              确认重置
             </Button>
           </DialogFooter>
         </DialogContent>
