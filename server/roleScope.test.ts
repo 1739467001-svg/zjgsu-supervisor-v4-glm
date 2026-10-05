@@ -185,7 +185,7 @@ describe("多角色（extraRoles）", () => {
 
   it("普通用户无附加角色时不能访问管理端接口", async () => {
     const caller = appRouter.createCaller(ctxFor({ role: "user", extraRoles: [] }));
-    await expect(caller.users.list()).rejects.toThrow(/研究生院主管/);
+    await expect(caller.users.list()).rejects.toThrow(/无账号管理权限/);
   });
 });
 

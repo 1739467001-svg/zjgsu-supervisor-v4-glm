@@ -88,8 +88,10 @@ export function getMenuItemsForRoles(roles: readonly string[]) {
   if (isSecretary) {
     base.push({ icon: ClipboardCheck, label: "督导评价", path: "/evaluations", key: "evaluations-secretary" });
     base.push({ icon: BarChart2, label: "评价进度", path: "/course-progress", key: "course-progress-secretary" });
-    // 全校聚合图表（覆盖率/次数/平均分，不含任何评语明细）；明细下钻仍按本院范围在各接口校验
+    // 全院口径统计图表（本院数据）；明细下钻仍按本院范围在各接口校验
     base.push({ icon: Building2, label: "统计仪表盘", path: "/admin", key: "admin" });
+    // 本院账号管理（上线前会议：教学秘书可重置本院账号密码），页面内自动收窄为有限视图
+    base.push({ icon: Users, label: "账号管理", path: "/users", key: "users-secretary" });
   }
 
   if (canAdminister) {

@@ -275,8 +275,8 @@ export const userAdminLogs = mysqlTable("user_admin_logs", {
   // 被变更的账号
   targetUserId: int("targetUserId").notNull(),
   targetName: varchar("targetName", { length: 128 }),
-  // 变更字段：role=主角色, extraRoles=附加角色, college=所属学院, supervisorScope=督导范围
-  action: mysqlEnum("action", ["role", "extraRoles", "college", "supervisorScope"]).notNull(),
+  // 变更字段：role=主角色, extraRoles=附加角色, college=所属学院, supervisorScope=督导范围, passwordReset=重置密码
+  action: mysqlEnum("action", ["role", "extraRoles", "college", "supervisorScope", "passwordReset"]).notNull(),
   // 人读得懂的变更描述，如「主角色：督导专家 → 研究生院主管」
   detail: varchar("detail", { length: 512 }).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
