@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { GraduationCap, Eye, EyeOff, Shield, Lock, User } from "lucide-react";
+import { GraduationCap, Eye, EyeOff, Shield, Lock, User, BookOpenCheck, ClipboardCheck, BarChart3, UsersRound } from "lucide-react";
 
 export default function Login() {
   const [employeeId, setEmployeeId] = useState("");
@@ -52,78 +52,108 @@ export default function Login() {
           "linear-gradient(135deg, oklch(0.20 0.045 245) 0%, oklch(0.30 0.08 240) 50%, oklch(0.22 0.05 250) 100%)",
       }}
     >
-      {/* 左侧装饰区 */}
-      <div className="hidden lg:flex lg:w-1/2 flex-col justify-center items-center p-12 relative overflow-hidden">
-        {/* 背景装饰圆 */}
+      {/* 左侧装饰区 —— 学术编辑式排版：编号索引 + 金色细线 + 校训 */}
+      <div className="hidden lg:flex lg:w-1/2 flex-col relative overflow-hidden">
+        {/* 背景：淡学术网格 + 水印大字 */}
         <div
-          className="absolute top-20 left-20 w-72 h-72 rounded-full opacity-10"
-          style={{ background: "oklch(0.62 0.14 200)" }}
+          className="absolute inset-0 opacity-[0.05] pointer-events-none"
+          style={{
+            backgroundImage:
+              "linear-gradient(oklch(0.80 0.02 240 / 0.4) 1px, transparent 1px), linear-gradient(90deg, oklch(0.80 0.02 240 / 0.4) 1px, transparent 1px)",
+            backgroundSize: "56px 56px",
+          }}
         />
         <div
-          className="absolute bottom-32 right-16 w-56 h-56 rounded-full opacity-8"
-          style={{ background: "oklch(0.72 0.14 85)" }}
-        />
-        <div
-          className="absolute top-1/2 left-1/3 w-40 h-40 rounded-full opacity-6"
-          style={{ background: "oklch(0.52 0.16 200)" }}
-        />
+          className="absolute -bottom-8 -right-4 select-none pointer-events-none font-bold"
+          style={{ fontSize: "200px", lineHeight: 1, color: "oklch(0.88 0.015 240 / 0.045)", letterSpacing: "0.05em" }}
+        >
+          督学
+        </div>
 
-        <div className="relative z-10 text-center">
-          {/* 校徽区域 */}
-          <div className="flex justify-center mb-8">
+        <div className="relative z-10 flex-1 flex flex-col justify-between max-w-lg mx-auto w-full py-10 pl-14 pr-6">
+          {/* 顶部：校徽 + 校名 */}
+          <div className="flex items-center gap-4">
             <div
-              className="w-28 h-28 rounded-full flex items-center justify-center"
+              className="w-14 h-14 rounded-full flex items-center justify-center flex-shrink-0"
               style={{
-                background: "oklch(0.28 0.055 245)",
-                border: "2px solid oklch(0.62 0.14 200 / 0.4)",
-                boxShadow: "0 0 40px oklch(0.35 0.13 245 / 0.3)",
+                background: "oklch(0.26 0.055 245)",
+                border: "1px solid oklch(0.72 0.14 85 / 0.5)",
+                boxShadow: "0 0 28px oklch(0.35 0.13 245 / 0.4)",
               }}
             >
-              <GraduationCap className="w-14 h-14" style={{ color: "oklch(0.72 0.14 85)" }} />
+              <GraduationCap className="w-7 h-7" style={{ color: "oklch(0.72 0.14 85)" }} />
+            </div>
+            <div>
+              <p className="text-lg font-semibold tracking-[0.08em]" style={{ color: "oklch(0.93 0.008 240)" }}>
+                浙江工商大学
+              </p>
+              <p className="text-xs mt-0.5 tracking-[0.28em]" style={{ color: "oklch(0.60 0.02 240)" }}>
+                研究生院 · 督导管理系统
+              </p>
             </div>
           </div>
-          <h1 className="text-4xl font-bold mb-3" style={{ color: "oklch(0.95 0.008 240)" }}>
-            浙江工商大学
-          </h1>
-          <h2 className="text-2xl font-light mb-2" style={{ color: "oklch(0.80 0.015 240)" }}>
-            研究生院督导管理系统
-          </h2>
-          <p
-            className="text-base mt-6 max-w-xs mx-auto leading-relaxed"
-            style={{ color: "oklch(0.65 0.02 240)" }}
-          >
-            专业、高效的研究生课程督导评价平台，助力教学质量持续提升
-          </p>
 
-          {/* 功能标签 */}
-          <div className="flex flex-wrap justify-center gap-2 mt-8">
-            {["课程督导", "评价管理", "数据统计", "多角色协作"].map((tag) => (
-              <span
-                key={tag}
-                className="px-3 py-1.5 rounded-full text-xs font-medium"
-                style={{
-                  background: "oklch(0.28 0.055 245)",
-                  color: "oklch(0.75 0.06 200)",
-                  border: "1px solid oklch(0.35 0.07 245)",
-                }}
-              >
-                {tag}
-              </span>
-            ))}
+          {/* 中部：金色短线 + 主标题 + 特性索引 */}
+          <div className="my-10">
+            <div className="w-12 h-[3px] mb-7" style={{ background: "oklch(0.72 0.14 85)" }} />
+            <h1
+              className="font-bold leading-[1.25]"
+              style={{ color: "oklch(0.95 0.008 240)", fontSize: "40px", letterSpacing: "0.02em" }}
+            >
+              研究生教学督导
+              <br />
+              评价管理平台
+            </h1>
+            <p className="text-[15px] mt-5 leading-relaxed max-w-md" style={{ color: "oklch(0.68 0.02 240)" }}>
+              面向全校研究生课程的质量督导体系，覆盖听课计划、课堂评价与统计分析全流程。
+            </p>
+
+            <div className="mt-9">
+              {[
+                { icon: BookOpenCheck, title: "课程督导", desc: "全校与 MBA 课表双入口，按学期归档留存" },
+                { icon: ClipboardCheck, title: "听课评价", desc: "二十项定量指标与亮点建议，草稿可续填" },
+                { icon: BarChart3, title: "统计分析", desc: "学院口径三图与明细，历史数据随时可溯" },
+                { icon: UsersRound, title: "多角色协作", desc: "双身份一键切换，权限边界清晰分明" },
+              ].map((f, i) => (
+                <div
+                  key={f.title}
+                  className="flex items-start gap-4 py-3"
+                  style={{ borderTop: i === 0 ? "1px solid oklch(0.34 0.05 245)" : undefined, borderBottom: i === 3 ? "1px solid oklch(0.34 0.05 245)" : undefined }}
+                >
+                  <span className="text-xs font-semibold mt-1 w-7 flex-shrink-0" style={{ color: "oklch(0.72 0.14 85)" }}>
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold tracking-wide" style={{ color: "oklch(0.88 0.012 240)" }}>
+                      {f.title}
+                    </p>
+                    <p className="text-xs mt-1" style={{ color: "oklch(0.58 0.02 240)" }}>
+                      {f.desc}
+                    </p>
+                  </div>
+                  <f.icon className="w-4 h-4 mt-1.5 flex-shrink-0" style={{ color: "oklch(0.66 0.09 205)" }} />
+                </div>
+              ))}
+            </div>
           </div>
 
-          {/* 数据统计（当前学期真实数据） */}
-          <div className="grid grid-cols-3 gap-4 mt-10">
-            {summaryItems.map(({ value, label }) => (
-              <div key={label} className="text-center">
-                <div className="text-2xl font-bold" style={{ color: "oklch(0.72 0.14 85)" }}>
-                  {value}
+          {/* 底部：真实数据 + 校训 */}
+          <div>
+            <div className="grid grid-cols-3 gap-6 pt-6" style={{ borderTop: "1px solid oklch(0.34 0.05 245)" }}>
+              {summaryItems.map(({ value, label }) => (
+                <div key={label}>
+                  <div className="text-2xl font-bold tabular-nums" style={{ color: "oklch(0.72 0.14 85)" }}>
+                    {value}
+                  </div>
+                  <div className="text-xs mt-1 tracking-wide" style={{ color: "oklch(0.58 0.02 240)" }}>
+                    {label}
+                  </div>
                 </div>
-                <div className="text-xs mt-1" style={{ color: "oklch(0.60 0.02 240)" }}>
-                  {label}
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
+            <p className="text-[11px] mt-7 tracking-[0.6em]" style={{ color: "oklch(0.52 0.02 240)" }}>
+              诚 毅 勤 朴
+            </p>
           </div>
         </div>
       </div>
