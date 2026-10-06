@@ -10,6 +10,16 @@ export default function Login() {
   const [employeeId, setEmployeeId] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  // 登录页展示当前学期的真实规模（此前为写死的 1431/22/588 装饰数据）
+  const { data: summary } = trpc.stats.loginPageSummary.useQuery(undefined, {
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+  const summaryItems = [
+    { value: summary ? String(summary.courses) : "—", label: "课程总数" },
+    { value: summary ? String(summary.colleges) : "—", label: "覆盖学院" },
+    { value: summary ? String(summary.teachers) : "—", label: "授课教师" },
+  ];
 
   const loginMutation = trpc.auth.loginByEmployeeId.useMutation({
     onSuccess: (data) => {
@@ -102,13 +112,9 @@ export default function Login() {
             ))}
           </div>
 
-          {/* 数据统计 */}
+          {/* 数据统计（当前学期真实数据） */}
           <div className="grid grid-cols-3 gap-4 mt-10">
-            {[
-              { value: "1431", label: "课程总数" },
-              { value: "22", label: "覆盖学院" },
-              { value: "588", label: "授课教师" },
-            ].map(({ value, label }) => (
+            {summaryItems.map(({ value, label }) => (
               <div key={label} className="text-center">
                 <div className="text-2xl font-bold" style={{ color: "oklch(0.72 0.14 85)" }}>
                   {value}

@@ -3,13 +3,17 @@
  *
  * 逻辑说明：
  * - 浙工商研究生课程按"周次+星期"排课，无具体日期
- * - 学期开始日期：2026-03-02（第1周星期一）
- * - 每天凌晨 0:30 运行，计算明天是第几周星期几，
+ * - 学期配置优先读 semesters 表的当前学期，无记录时回退到常量
+ * - 每天凌晨 0:30（北京时间）运行，计算明天是第几周星期几，
  *   查找所有 status=pending 且 planWeek 匹配的听课计划，
  *   向对应督导专家发送站内信提醒
+ *
+ * 时区说明：所有"今天是几号"的判断都通过 Intl 强制按北京时间取日历日
+ * （cstCalendarUtc），不依赖进程本地时区——此前进程 TZ 丢失时
+ * 这里的日期计算会整体漂移（2026-10-06 线上体检发现）。
  */
 
-import { getDb } from "./db";
+import { getDb, getActiveSemester } from "./db";
 import { listeningPlans, courses, users, notifications } from "../drizzle/schema";
 import { eq, and, inArray } from "drizzle-orm";
 
@@ -17,19 +21,33 @@ import { eq, and, inArray } from "drizzle-orm";
 // 学期日期计算
 // ============================================================
 
-/** 学期第1周星期一的日期（2026-03-02） */
-const SEMESTER_START = new Date("2026-03-02T00:00:00+08:00");
+/** 数据库无当前学期记录时的兜底配置 */
+const FALLBACK_SEMESTER = { startDate: "2026-03-02", totalWeeks: 19 };
 
-/** 中文星期 -> ISO weekday (1=Mon, 7=Sun) */
-const WEEKDAY_MAP: Record<string, number> = {
-  星期一: 1,
-  星期二: 2,
-  星期三: 3,
-  星期四: 4,
-  星期五: 5,
-  星期六: 6,
-  星期日: 7,
-};
+/** 优先读数据库当前学期；读不到时回退常量 */
+async function getSemesterConfig(): Promise<{ startDate: string; totalWeeks: number }> {
+  const active = await getActiveSemester();
+  if (active?.startDate) {
+    return { startDate: active.startDate, totalWeeks: active.totalWeeks || FALLBACK_SEMESTER.totalWeeks };
+  }
+  return FALLBACK_SEMESTER;
+}
+
+/**
+ * 把任意时刻映射到「北京时间的日历日」，用 UTC 零点表示。
+ * UTC 零点恰好是北京当天 08:00，getUTCDay()/天数差都与该日历日一致，
+ * 且不受进程本地时区影响。
+ */
+function cstCalendarUtc(date: Date): Date {
+  const ymd = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date); // YYYY-MM-DD
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
 
 /** ISO weekday -> 中文星期 */
 const ISO_TO_CN: Record<number, string> = {
@@ -46,24 +64,25 @@ const ISO_TO_CN: Record<number, string> = {
  * 根据给定日期计算学期周次和星期
  * @returns { week: number, weekdayCN: string } | null（超出学期范围则返回null）
  */
-function getSemesterInfo(date: Date): { week: number; weekdayCN: string } | null {
-  // 转为北京时间的零点
-  const bjDate = new Date(date.toLocaleString("en-US", { timeZone: "Asia/Shanghai" }));
-  bjDate.setHours(0, 0, 0, 0);
-
-  const startBJ = new Date(SEMESTER_START.toLocaleString("en-US", { timeZone: "Asia/Shanghai" }));
-  startBJ.setHours(0, 0, 0, 0);
+function getSemesterInfo(
+  date: Date,
+  semester: { startDate: string; totalWeeks: number }
+): { week: number; weekdayCN: string } | null {
+  // 都映射到"日历日的 UTC 零点"同一根日期轴上做天数差，与进程时区无关
+  const bjDate = cstCalendarUtc(date);
+  const [sy, sm, sd] = semester.startDate.split("-").map(Number);
+  const startBJ = new Date(Date.UTC(sy, sm - 1, sd));
 
   const diffMs = bjDate.getTime() - startBJ.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
 
   if (diffDays < 0) return null; // 学期未开始
 
   const week = Math.floor(diffDays / 7) + 1;
-  if (week > 19) return null; // 学期已结束
+  if (week > semester.totalWeeks) return null; // 学期已结束
 
-  // JS getDay(): 0=Sun, 1=Mon...6=Sat → 转为 ISO weekday
-  const jsDay = bjDate.getDay();
+  // UTC 零点即该日历日（北京 08:00），getUTCDay 直接就是星期几
+  const jsDay = bjDate.getUTCDay();
   const isoDay = jsDay === 0 ? 7 : jsDay;
   const weekdayCN = ISO_TO_CN[isoDay];
 
@@ -81,10 +100,12 @@ export async function sendListeningReminders(): Promise<void> {
     return;
   }
 
-  // 计算"明天"是学期第几周星期几
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const info = getSemesterInfo(tomorrow);
+  // 学期配置读数据库当前学期（换学期后提醒自动跟随，不再依赖写死的起始日）
+  const semester = await getSemesterConfig();
+
+  // 北京时间的"明天"（在日历轴上加一天），与进程时区解耦
+  const tomorrow = new Date(cstCalendarUtc(new Date()).getTime() + 24 * 60 * 60 * 1000);
+  const info = getSemesterInfo(tomorrow, semester);
 
   if (!info) {
     console.log("[Scheduler] Tomorrow is outside semester range, no reminders to send");
@@ -177,18 +198,20 @@ let schedulerTimer: NodeJS.Timeout | null = null;
 
 function getNextRunDelay(): number {
   const now = new Date();
-  const bjNow = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Shanghai" }));
-
-  // 今天的 0:30
-  const target = new Date(bjNow);
-  target.setHours(0, 30, 0, 0);
+  // 目标：下一个北京时间 00:30。CST = UTC+8，
+  // 因此"北京某日 00:30"的绝对时刻 = Date.UTC(年, 月-1, 日, 0, 30) - 8h
+  const today = cstCalendarUtc(now);
+  const y = today.getUTCFullYear();
+  const m = today.getUTCMonth();
+  const d = today.getUTCDate();
+  let target = new Date(Date.UTC(y, m, d, 0, 30) - 8 * 60 * 60 * 1000);
 
   // 如果今天的 0:30 已过，则设为明天的 0:30
-  if (bjNow >= target) {
-    target.setDate(target.getDate() + 1);
+  if (target.getTime() <= now.getTime()) {
+    target = new Date(target.getTime() + 24 * 60 * 60 * 1000);
   }
 
-  const delay = target.getTime() - bjNow.getTime();
+  const delay = target.getTime() - now.getTime();
   return delay;
 }
 

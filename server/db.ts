@@ -36,6 +36,11 @@ export async function getDb() {
           connectionLimit: 10,
           queueLimit: 0,
           enableKeepAlive: true,
+          // 数据库存的是中国标准时间的墙上时钟。不显式指定时驱动按进程本地时区
+          // 解释/格式化 —— 进程一旦丢失 TZ（systemd 未注入或回落 UTC），
+          // 读取会把墙钟当 UTC 序列化，前端显示快 8 小时（2026-10-06 线上体检发现）。
+          // 全部用户都在国内，这里固定 +08:00，不再依赖部署环境的时区配置。
+          timezone: "+08:00",
         });
       }
       _db = drizzle(_pool);
