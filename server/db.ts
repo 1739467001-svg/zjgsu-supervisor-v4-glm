@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import { MySqlTimestamp } from "drizzle-orm/mysql-core";
 import mysql from "mysql2/promise";
 import type { Pool } from "mysql2/promise";
 import {
@@ -25,6 +26,40 @@ import { resolveCollege } from "../shared/colleges";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let _pool: any = null;
+
+// ============================================================
+// timestamp 列映射修正：数据库墙钟 = 中国标准时间
+// ============================================================
+// drizzle-orm 对 MySQL timestamp 的默认约定是「UTC 墙钟」：
+// 读取时把列值硬拼 "+0000" 解析，写入时用 toISOString 的 UTC 墙钟——
+// 只有当连接会话时区为 UTC 时才自洽。本库会话时区跟随系统
+// （Asia/Shanghai），NOW()/defaultNow()/onUpdateNow() 写入的都是北京墙钟，
+// 沿用默认映射会把读取时间整体快 8 小时（2026-10-06 线上体检：
+// "提交时间显示为未来"），且与显式 new Date() 的写入路径互相矛盾。
+// 这里把映射统一为「timestamp 列存北京墙钟」的语义，与 defaultNow()
+// 写入的历史数据一致，存量数据无需迁移即可正确显示。
+const BJ_OFFSET = "+08:00";
+// sv-SE 的 Intl 输出恰好是 "YYYY-MM-DD HH:MM:SS"（24 小时制）
+const BJ_DATETIME_FORMATTER = new Intl.DateTimeFormat("sv-SE", {
+  timeZone: "Asia/Shanghai",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+(MySqlTimestamp.prototype as any).mapFromDriverValue = function (value: string | Date | null) {
+  if (value == null) return null;
+  // drizzle 的 typeCast 使 timestamp/datetime 列以会话时区（+08）的墙钟字符串到达这里
+  if (value instanceof Date) return value;
+  return new Date(`${value}${BJ_OFFSET}`);
+};
+(MySqlTimestamp.prototype as any).mapToDriverValue = function (value: Date) {
+  return BJ_DATETIME_FORMATTER.format(value);
+};
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
