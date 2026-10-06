@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { Search, BookOpen, MapPin, Clock, User, Plus, ChevronLeft, ChevronRight, Filter, X, RefreshCw } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { hasAnyRole } from "@shared/roles";
+import { hasAnyRole, getScopedCollege } from "@shared/roles";
 import { useSemester } from "@/hooks/useSemester";
 import { useSemesterSelection } from "@/contexts/SemesterSelection";
 
@@ -33,6 +33,17 @@ export default function CourseList() {
   const { semesterId, semester, isHistorical } = useSemesterSelection();
   const WEEKS = Array.from({ length: semester.totalWeeks }, (_, i) => i + 1);
   const canAddPlan = !isHistorical && hasAnyRole(user, ["supervisor_expert", "supervisor_leader", "graduate_admin", "admin"]);
+
+  // 数据范围文案：院级督导/秘书的课程列表实际已限定本院，标题不应再写"全校"
+  const scopedCollege = (() => {
+    try {
+      return getScopedCollege(user);
+    } catch {
+      // 学院范围缺失时后端会拒绝并提示联系管理员，这里只影响标题文案
+      return undefined;
+    }
+  })();
+  const scopeLabel = scopedCollege ? `本院课程（${scopedCollege}）` : "全校研究生课程";
 
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS });
   const [planDialog, setPlanDialog] = useState<{ open: boolean; courseId?: number; courseName?: string }>({ open: false });
@@ -117,7 +128,7 @@ export default function CourseList() {
           <div>
             <h1 className="text-xl font-bold" style={{ color: "oklch(0.18 0.025 240)" }}>课程浏览</h1>
             <p className="text-sm mt-0.5" style={{ color: "oklch(0.52 0.025 240)" }}>
-              全校研究生课程 · 共 <span className="font-semibold" style={{ color: "oklch(0.35 0.13 245)" }}>{coursesData?.total || 0}</span> 条
+              {scopeLabel} · 共 <span className="font-semibold" style={{ color: "oklch(0.35 0.13 245)" }}>{coursesData?.total || 0}</span> 条
               {activeFilterCount > 0 && <span className="ml-1">（已筛选）</span>}
             </p>
           </div>

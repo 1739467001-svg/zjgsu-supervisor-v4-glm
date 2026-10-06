@@ -200,7 +200,10 @@ export const appRouter = router({
   // 认证
   // ============================================================
   auth: router({
-    me: publicProcedure.query((opts) => opts.ctx.user),
+    // 与登录响应一致：对外返回的用户信息中手机号掩码（页面显示本就掩码）
+    me: publicProcedure.query((opts) =>
+      opts.ctx.user ? { ...opts.ctx.user, phone: maskPhone(opts.ctx.user.phone) } : null
+    ),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -229,7 +232,9 @@ export const appRouter = router({
         const cookieOptions = getSessionCookieOptions(ctx.req);
         ctx.res.cookie(COOKIE_NAME, token, cookieOptions);
 
-        return { success: true, user };
+        // 登录响应里的手机号做掩码：接口返回值可能被缓存/打印，
+        // 页面本就只显示掩码，响应明文没有业务用途（2026-10-06 体检收紧）
+        return { success: true, user: { ...user, phone: maskPhone(user.phone) } };
       }),
 
     // 修改密码
@@ -678,6 +683,19 @@ export const appRouter = router({
     courseCount: protectedProcedure.input(semesterInput).query(async ({ input }) => {
       const result = await getCourses({ page: 1, pageSize: 1, semesterId: await selectedSemesterId(input?.semesterId) });
       return { total: result.total };
+    }),
+
+    // 登录页展示当前学期的真实规模数字（无需登录）。
+    // 此前登录页写死 1431/22/588 装饰数据，与线上实际（1832 门/24 学院）不符，
+    // 正式推送后会被当成真实办学数据（2026-10-06 体检发现）。
+    // 只暴露三个计数，不含任何课程/人员明细。
+    loginPageSummary: publicProcedure.query(async () => {
+      const [courses, colleges, teachers] = await Promise.all([
+        getCourses({ pageSize: 1 }),
+        getDistinctColleges(),
+        getDistinctTeachers(),
+      ]);
+      return { courses: courses.total, colleges: colleges.length, teachers: teachers.length };
     }),
   }),
 
