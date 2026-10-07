@@ -256,7 +256,7 @@ export default function Dashboard() {
                     <p className="text-sm font-medium truncate" style={{ color: "oklch(0.20 0.025 240)" }}>{n.title}</p>
                     <p className="text-xs mt-0.5 line-clamp-1" style={{ color: "oklch(0.52 0.025 240)" }}>{n.content}</p>
                     <p className="text-xs mt-1" style={{ color: "oklch(0.65 0.02 240)" }}>
-                      {new Date(n.createdAt).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                      {new Date(n.createdAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                     </p>
                   </div>
                 </div>

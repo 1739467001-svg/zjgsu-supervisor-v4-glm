@@ -332,9 +332,11 @@ export default function CourseList() {
             </div>
           ) : (
             <>
-              {/* 桌面端表格 */}
-              <div className="hidden md:block overflow-x-auto">
-                <table className="w-full">
+              {/* 桌面端表格：lg(1024) 起才用表格 —— 768~1023 的平板宽度减去侧栏后
+                  9 列会被挤到逐字竖排（2026-10-07 多终端检查），平板走下方卡片布局；
+                  min-w 兜底保证窄桌面横向滚动而不是挤压 */}
+              <div className="hidden lg:block overflow-x-auto">
+                <table className="w-full min-w-[820px]">
                   <thead>
                     <tr style={{ background: "oklch(0.97 0.004 240)", borderBottom: "1px solid oklch(0.90 0.01 240)" }}>
                       {["课程名称", "主讲教师", "开课院系", "校区", "星期", "节次", "周次", "教室", ...(canAddPlan ? ["操作"] : [])].map((h) => (
@@ -396,7 +398,7 @@ export default function CourseList() {
               </div>
 
               {/* 移动端卡片 */}
-              <div className="md:hidden divide-y" style={{ borderColor: "oklch(0.92 0.008 240)" }}>
+              <div className="lg:hidden divide-y" style={{ borderColor: "oklch(0.92 0.008 240)" }}>
                 {coursesData?.data.map((course) => (
                   <div key={course.id} className="p-4 space-y-2">
                     <div className="flex items-start justify-between gap-2">
