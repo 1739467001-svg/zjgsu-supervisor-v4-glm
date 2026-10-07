@@ -317,7 +317,7 @@ export default function UserManagement() {
               {auditLogs.map((log) => (
                 <li key={log.id} className="text-xs flex flex-wrap items-baseline gap-x-2" style={{ color: "oklch(0.35 0.02 240)" }}>
                   <span style={{ color: "oklch(0.52 0.025 240)" }}>
-                    {new Date(log.createdAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                    {new Date(log.createdAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                   </span>
                   <span className="font-medium">{log.adminName || "管理员"}</span>
                   <span style={{ color: "oklch(0.52 0.025 240)" }}>调整了</span>
