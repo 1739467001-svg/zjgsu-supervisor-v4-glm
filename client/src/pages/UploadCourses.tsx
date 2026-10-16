@@ -29,6 +29,11 @@ interface PreviewInfo {
   courseCount: number;
   inserted: number;
   updated: number;
+  /** 本次导入将删除的：本入口学院里新课表已不存在、且无评价/计划关联的课 */
+  deleted: number;
+  /** 新课表已不存在、但有评价或听课计划关联而保留的课 */
+  keptReferenced: number;
+  /** 另一份课表（不在本入口范围）的课，原样保留 */
   preserved: number;
   warnings: string[];
   collegeDist: Array<{ college: string; count: number }>;
@@ -39,6 +44,10 @@ interface UploadStats {
   total: number;
   teachers: number;
   colleges: number;
+  updated?: number;
+  inserted?: number;
+  deleted?: number;
+  keptReferenced?: number;
 }
 
 interface UploadResult {
@@ -272,7 +281,7 @@ export default function UploadCourses() {
             ))}
           </div>
           <p className="text-xs text-blue-700">
-            当前学期已有 {preview.preserved} 门课不在本文件中，将原样保留（不删除）；导入前已自动备份，确认前不会写入任何数据。
+            本入口学院内已有 {preview.deleted} 门课不在新文件中，确认后将被删除；{preview.keptReferenced > 0 && <>另有 {preview.keptReferenced} 门因已有评价/听课计划关联而保留；</>}其他学院（另一份课表）的 {preview.preserved} 门课原样保留，导入前已自动备份，确认前不会写入任何数据。
           </p>
           {preview.collegeDist.length > 0 && (
             <p className="text-xs text-blue-600 mt-1.5">
@@ -340,6 +349,12 @@ export default function UploadCourses() {
                     </div>
                   ))}
                 </div>
+              )}
+              {result.success && result.stats && (
+                <p className="text-xs text-green-700 mt-2">
+                  本次导入：新增 {result.stats.inserted ?? 0} 门 · 更新 {result.stats.updated ?? 0} 门 · 删除 {result.stats.deleted ?? 0} 门
+                  {result.stats.keptReferenced ? ` · 保留有评价/计划关联的 ${result.stats.keptReferenced} 门` : ""}
+                </p>
               )}
               {result.success && (
                 <div className="flex items-center gap-3 mt-3">

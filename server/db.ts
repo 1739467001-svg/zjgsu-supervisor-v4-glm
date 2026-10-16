@@ -406,8 +406,10 @@ export async function getCourses(filters: {
   if (filters.teacher && filters.teacher.trim()) conditions.push(like(courses.teacher, `%${filters.teacher.trim()}%`));
   if (filters.courseName && filters.courseName.trim()) conditions.push(like(courses.courseName, `%${filters.courseName.trim()}%`));
   if (filters.week && filters.week > 0) {
-    // 使用JSON_CONTAINS查询包含特定周次的课程（weekNumbers是JSON数组如[1,2,3,4,5]）
-    conditions.push(sql`JSON_CONTAINS(${courses.weekNumbers}, CAST(${filters.week} AS JSON))`);
+    // 使用JSON_CONTAINS查询包含特定周次的课程（weekNumbers是JSON数组如[1,2,3,4,5]）。
+    // 候选参数按规范是 JSON 文本（'6'），以字符串绑定传入：线上库是 MariaDB，
+    // 不支持 MySQL 的 CAST(x AS JSON)，此前该写法导致按周次筛选一律 500。
+    conditions.push(sql`JSON_CONTAINS(${courses.weekNumbers}, ${JSON.stringify(filters.week)})`);
   }
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;

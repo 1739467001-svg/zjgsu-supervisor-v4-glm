@@ -299,11 +299,22 @@ function parseMba(rows: any[][], headerRow: number, opts: ParseOptions): ParseRe
   const totalWeeks = opts.totalWeeks ?? 0;
   const campus = opts.mbaCampus ?? DEFAULT_MBA_CAMPUS;
   const outOfRange = new Set<number>();
+  const preTermDates = new Set<string>();
   const courses: ParsedCourse[] = [];
 
   for (const { first: row, dates } of groups.values()) {
     const courseName = cell(row, idx.courseName);
-    const weeks = [...new Set(dates.map((d) => weekOfDate(d, start)))]
+    // 起始日之前的日期按第 0 周换算会被整体剔除，课程凭空消失（实测 2026-09-12/13 的
+    // 16 门集中班课全部落空）。学期第一周从起始日（周一）起算，先于它的日期属于
+    // 开学前的加课，并入第 1 周，同时把原始日期记入警告供人工核对。
+    const weeks = [...new Set(dates.map((d) => {
+      const w = weekOfDate(d, start);
+      if (w === 0) {
+        preTermDates.add(d);
+        return 1;
+      }
+      return w;
+    }))]
       .filter((w) => {
         if (w < 1 || (totalWeeks > 0 && w > totalWeeks)) {
           outOfRange.add(w);
@@ -317,6 +328,7 @@ function parseMba(rows: any[][], headerRow: number, opts: ParseOptions): ParseRe
     const startTime = cell(row, idx.startTime);
     const endTime = cell(row, idx.endTime);
     const rawCount = cell(row, idx.studentCount);
+    const customWeeks = formatWeekNumbers(weeks);
 
     courses.push({
       academicYear: term.academicYear,
@@ -330,10 +342,11 @@ function parseMba(rows: any[][], headerRow: number, opts: ParseOptions): ParseRe
       // MBA 课表没有校区列，按研究生院确认的口径统一填教工路（可用 mbaCampus 覆盖）
       campus,
       weekday: cell(row, idx.weekday),
-      weekType: "",
+      // MBA 没有「单双周」列；写入换算出的周次文本，课程列表「周次」列才有内容可显示
+      weekType: customWeeks,
       // 没有节次，用实际起止时间代替，督导据此找得到课
       period: startTime && endTime ? `${startTime}-${endTime}` : startTime,
-      customWeeks: formatWeekNumbers(weeks),
+      customWeeks,
       weekNumbers: weeks,
       // MBA 课表没有学生专业列；不塞别的内容进来，免得界面上「学生专业」显示驴唇不对马嘴
       studentMajor: "",
@@ -347,6 +360,11 @@ function parseMba(rows: any[][], headerRow: number, opts: ParseOptions): ParseRe
   if (examSessions > 0) warnings.push(`${examSessions} 条考试场次已排除（考试不是授课，不安排听课）`);
   if (noTeacher > 0) warnings.push(`${noTeacher} 条记录没有授课教师`);
   if (badDate > 0) warnings.push(`${badDate} 条记录日期无法解析，已跳过`);
+  if (preTermDates.size > 0) {
+    warnings.push(
+      `${preTermDates.size} 个上课日期（${[...preTermDates].sort().join("、")}）早于学期起始日，已并入第 1 周；如实际是上学期课程请人工核对`
+    );
+  }
   if (outOfRange.size > 0) {
     warnings.push(
       `有日期换算出第 ${[...outOfRange].sort((a, b) => a - b).join("、")} 周，超出 1~${totalWeeks || "?"} 周范围，已剔除；请核对学期起始日`
