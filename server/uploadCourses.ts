@@ -19,7 +19,7 @@
 import { Router, Request, Response } from "express";
 import multer from "multer";
 import { getDb, getActiveSemester } from "./db";
-import { courses } from "../drizzle/schema";
+import { courses, listeningPlans, courseEvaluations } from "../drizzle/schema";
 import { sql, eq, and, isNull, or, inArray } from "drizzle-orm";
 import { sdk } from "./_core/sdk";
 import { parseCourseWorkbook, mergeDuplicateCourses, courseKey } from "./courseImport";
@@ -148,8 +148,28 @@ router.post(
         }
       }
 
-      // 当前学期内、新课表里已不存在的课程（仅统计，不删除）
-      const toDeleteIds = existingCourses.map((c) => c.id).filter((id) => !matchedIds.has(id));
+      // 当前学期内、新课表里已不存在的课程：
+      // 只清理「本入口负责的学院」里不再被新课表覆盖的课，另一份课表的课不掺和；
+      // 已有评价或听课计划关联的一律保留，防止 courseId 断裂。
+      const entryColleges = new Set(newCourseData.map((c) => c.college).filter(Boolean));
+      const staleCourseIds = existingCourses
+        .filter((c) => c.college != null && entryColleges.has(c.college) && !matchedIds.has(c.id))
+        .map((c) => c.id);
+
+      let referencedIds = new Set<number>();
+      if (staleCourseIds.length > 0) {
+        const evalRefs = await db
+          .select({ courseId: courseEvaluations.courseId })
+          .from(courseEvaluations)
+          .where(inArray(courseEvaluations.courseId, staleCourseIds));
+        const planRefs = await db
+          .select({ courseId: listeningPlans.courseId })
+          .from(listeningPlans)
+          .where(inArray(listeningPlans.courseId, staleCourseIds));
+        referencedIds = new Set([...evalRefs, ...planRefs].map((r) => r.courseId));
+      }
+      const toDeleteIds = staleCourseIds.filter((id) => !referencedIds.has(id));
+      const keptReferenced = staleCourseIds.length - toDeleteIds.length;
 
       const formatLabel = parsed.format === "mba" ? "MBA 课表" : "研究生排课信息表";
 
@@ -173,7 +193,9 @@ router.post(
             courseCount: newCourseData.length,
             inserted: toInsert.length,
             updated: toUpdate.length,
-            preserved: toDeleteIds.length,
+            deleted: toDeleteIds.length,
+            keptReferenced,
+            preserved: existingCourses.length - toDeleteIds.length - keptReferenced,
             warnings: parsed.warnings,
             collegeDist,
             semesterLabel: `${active.academicYear} ${active.name}`,
@@ -181,8 +203,9 @@ router.post(
         });
       }
 
-      // ---- 确认导入：UPSERT，严格限定在当前学期内 ----
-      // 不删除任何课程。两份课表分次上传，也不会把另一份的课程清空。
+      // ---- 确认导入：UPSERT + 按入口范围清理，严格限定在当前学期内 ----
+      // 另一份课表（不在本入口学院范围内）的课程不动；删除仅针对本入口学院里
+      // 新课表已不存在、且没有评价/听课计划关联的课。
 
       const semesterId = active?.id ?? null;
 
@@ -200,6 +223,10 @@ router.post(
             toInsert.slice(i, i + batchSize).map((c) => ({ ...c, semesterId }))
           );
         }
+      }
+
+      if (toDeleteIds.length > 0) {
+        await db.delete(courses).where(inArray(courses.id, toDeleteIds));
       }
 
 
@@ -223,8 +250,8 @@ router.post(
           colleges: Number(finalStats?.colleges ?? collegeSet.size),
           updated: toUpdate.length,
           inserted: toInsert.length,
-          deleted: 0,
-          preserved: toDeleteIds.length,
+          deleted: toDeleteIds.length,
+          keptReferenced,
         },
       });
     } catch (err: any) {

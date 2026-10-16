@@ -374,7 +374,8 @@ export default function CourseList() {
                         <td className="px-4 py-3 text-sm" style={{ color: "oklch(0.30 0.04 240)" }}>{course.weekday}</td>
                         <td className="px-4 py-3 text-xs" style={{ color: "oklch(0.40 0.025 240)" }}>{course.period}</td>
                         <td className="px-4 py-3 text-xs max-w-[150px]" style={{ color: "oklch(0.52 0.025 240)" }}>
-                          <span title={course.weekType || ""}>{course.weekType}</span>
+                          {/* MBA 课表没有「单双周」，周次写在 customWeeks；老数据 weekType 为空时回退显示它 */}
+                          <span title={course.weekType || course.customWeeks || ""}>{course.weekType || course.customWeeks}</span>
                         </td>
                         <td className="px-4 py-3 text-xs" style={{ color: "oklch(0.52 0.025 240)" }}>{course.classroom}</td>
                         {canAddPlan && (
@@ -431,7 +432,7 @@ export default function CourseList() {
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       <Badge variant="outline" className="text-xs h-5 px-1.5">{course.college}</Badge>
-                      <Badge variant="outline" className="text-xs h-5 px-1.5" style={{ color: "oklch(0.52 0.025 240)" }}>{course.weekType}</Badge>
+                      <Badge variant="outline" className="text-xs h-5 px-1.5" style={{ color: "oklch(0.52 0.025 240)" }}>{course.weekType || course.customWeeks}</Badge>
                     </div>
                   </div>
                 ))}

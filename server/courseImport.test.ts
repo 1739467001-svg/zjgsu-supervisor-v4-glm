@@ -21,7 +21,7 @@ import {
 } from "./courseImport";
 import { normalizeCourseCollege } from "../shared/colleges";
 
-const SEMESTER_START = "2026-09-07";
+const SEMESTER_START = "2026-09-14";
 const TOTAL_WEEKS = 18;
 
 /** 构造一个内存工作簿，用于不依赖真实文件的用例 */
@@ -69,19 +69,19 @@ describe("周次解析", () => {
 
 describe("日期换算周次", () => {
   it("学期第一周的周一算第 1 周", () => {
-    expect(weekOfDate("2026-09-07", SEMESTER_START)).toBe(1);
+    expect(weekOfDate("2026-09-14", SEMESTER_START)).toBe(1);
   });
 
   it("第一周的周日仍算第 1 周", () => {
-    expect(weekOfDate("2026-09-13", SEMESTER_START)).toBe(1);
+    expect(weekOfDate("2026-09-20", SEMESTER_START)).toBe(1);
   });
 
   it("跨到下周一就进第 2 周", () => {
-    expect(weekOfDate("2026-09-14", SEMESTER_START)).toBe(2);
+    expect(weekOfDate("2026-09-21", SEMESTER_START)).toBe(2);
   });
 
   it("学期末尾的日期落在第 18 周", () => {
-    expect(weekOfDate("2027-01-10", SEMESTER_START)).toBe(18);
+    expect(weekOfDate("2027-01-17", SEMESTER_START)).toBe(18);
   });
 });
 
@@ -174,9 +174,15 @@ describe("MBA 课表：把上课场次归并成课程", () => {
       period: "09:00-12:00",
       academicYear: "2026-2027",
       semester: "第一学期",
-      weekNumbers: [1, 6],
+      // 09-12 早于起始日（09-14），并入第 1 周；10-17 是第 5 周
+      weekNumbers: [1, 5],
+      // MBA 没有「单双周」列，周次文本写进 weekType，课程列表「周次」列才有显示
+      weekType: "第1|5周",
+      customWeeks: "第1|5周",
       studentCount: 18,
     });
+    // 起始日之前的日期要有明确警告，供人工核对是不是上学期课程
+    expect(res.warnings.join()).toMatch(/早于学期起始日，已并入第 1 周/);
   });
 
   it("考试场次不算授课，不进课表", () => {
