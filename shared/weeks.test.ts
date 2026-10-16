@@ -5,7 +5,7 @@
  * 也要在一门课被多位督导在不同周听过时把周次完整列出来。
  */
 import { describe, expect, it } from "vitest";
-import { collectEvaluatedWeeks, formatEvaluatedWeeks } from "./weeks";
+import { collectEvaluatedWeeks, formatEvaluatedWeeks, weekLabel } from "./weeks";
 
 describe("collectEvaluatedWeeks", () => {
   it("单条评价取其周次", () => {
@@ -20,7 +20,7 @@ describe("collectEvaluatedWeeks", () => {
     expect(collectEvaluatedWeeks([{ actualWeek: 10 }, { actualWeek: 2 }])).toEqual([2, 10]);
   });
 
-  it("忽略空值与非法周次", () => {
+  it("忽略空值与非法周次（0 是合法周次 = 开学前，必须保留）", () => {
     expect(
       collectEvaluatedWeeks([
         { actualWeek: null },
@@ -31,7 +31,7 @@ describe("collectEvaluatedWeeks", () => {
         { actualWeek: 1.5 },
         { actualWeek: 7 },
       ])
-    ).toEqual([7]);
+    ).toEqual([0, 7]);
   });
 
   it("接受字符串形式的周次（JSON 传输可能带过来）", () => {
@@ -50,8 +50,13 @@ describe("formatEvaluatedWeeks", () => {
     expect(formatEvaluatedWeeks([{ actualWeek: 5 }])).toBe("第5周");
   });
 
-  it("多周合并在一个「第…周」里，用顿号分隔", () => {
-    expect(formatEvaluatedWeeks([{ actualWeek: 12 }, { actualWeek: 3 }])).toBe("第3、12周");
+  it("多周合并展示，用顿号分隔", () => {
+    expect(formatEvaluatedWeeks([{ actualWeek: 12 }, { actualWeek: 3 }])).toBe("第3周、第12周");
+  });
+
+  it("第 0 周显示为「开学前」，与第 1 周合并时也按口径展示", () => {
+    expect(formatEvaluatedWeeks([{ actualWeek: 0 }])).toBe("开学前");
+    expect(formatEvaluatedWeeks([{ actualWeek: 1 }, { actualWeek: 0 }])).toBe("开学前、第1周");
   });
 
   it("有评价但都没记周次时给出明确提示，而不是留空", () => {
@@ -60,5 +65,12 @@ describe("formatEvaluatedWeeks", () => {
 
   it("fallback 可自定义", () => {
     expect(formatEvaluatedWeeks([], "—")).toBe("—");
+  });
+});
+
+describe("weekLabel", () => {
+  it("0 → 开学前，正整数 → 第N周", () => {
+    expect(weekLabel(0)).toBe("开学前");
+    expect(weekLabel(3)).toBe("第3周");
   });
 });

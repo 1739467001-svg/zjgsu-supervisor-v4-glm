@@ -38,9 +38,10 @@ function parseDateBJ(dateStr: string): Date {
 }
 
 /**
- * 根据听课日期计算对应的周次
+ * 根据听课日期计算对应的周次。全校校历统一口径：学期第一周的周一是第 1 周第 1 天，
+ * 早于它的日期（如 MBA 提前开学的课）记为第 0 周，全校周次才能对得上校历。
  * @param listenDate 听课日期 (YYYY-MM-DD 格式或 Date 对象)
- * @returns 周次 (1-19) 或 undefined 如果日期超出学期范围
+ * @returns 周次 (0~totalWeeks) 或 undefined 如果日期超出学期范围
  */
 export function calculateWeekFromDate(listenDate: string | Date, semester: SemesterConfig = DEFAULT_SEMESTER): number | undefined {
   let dateStr: string;
@@ -63,11 +64,12 @@ export function calculateWeekFromDate(listenDate: string | Date, semester: Semes
   const diffMs = date.getTime() - startDate.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-  // 计算周次（第一周是第 0-6 天）
+  // 计算周次（第一周是第 0-6 天；开学前 diffDays 为负，Math.floor 落到 0 或负数）
   const week = Math.floor(diffDays / 7) + 1;
 
-  // 检查是否在有效范围内
-  if (week < 1 || week > semester.totalWeeks) {
+  // 开学前统一记为第 0 周（负数周收敛到 0），过晚则超出学期范围
+  if (week < 1) return 0;
+  if (week > semester.totalWeeks) {
     return undefined;
   }
 
@@ -75,13 +77,24 @@ export function calculateWeekFromDate(listenDate: string | Date, semester: Semes
 }
 
 /**
- * 根据周次计算该周的日期范围（周一到周日）
- * @param week 周次 (1-19)
+ * 根据周次计算该周的日期范围（周一到周日）。
+ * 第 0 周是「开学前」，其起点不早于学期起始日往前推 6 天（保留开学前一周内
+ * 最早可能开课的日期）；更早的历史日期不属于本学期，不应可选。
+ * @param week 周次 (0-19)
  * @returns { startDate, endDate } 该周的起始和结束日期 (YYYY-MM-DD)，或 undefined 如果周次无效
  */
 export function calculateDateRangeFromWeek(week: number, semester: SemesterConfig = DEFAULT_SEMESTER): { startDate: string; endDate: string } | undefined {
-  if (week < 1 || week > semester.totalWeeks) {
+  if (week < 0 || week > semester.totalWeeks) {
     return undefined;
+  }
+
+  if (week === 0) {
+    // 开学前一周：起点为起始日前推 6 天，终点为起始日前一天
+    const endDate = parseDateBJ(semester.startDate);
+    endDate.setDate(endDate.getDate() - 1);
+    const startDate = new Date(endDate);
+    startDate.setDate(startDate.getDate() - 6);
+    return formatRange(startDate, endDate);
   }
 
   const startDate = parseDateBJ(semester.startDate);
@@ -90,6 +103,10 @@ export function calculateDateRangeFromWeek(week: number, semester: SemesterConfi
   const endDate = new Date(startDate);
   endDate.setDate(endDate.getDate() + 6);
 
+  return formatRange(startDate, endDate);
+}
+
+function formatRange(start: Date, end: Date): { startDate: string; endDate: string } {
   // 使用北京时间格式化
   const fmt = (d: Date) =>
     new Intl.DateTimeFormat("en-CA", {
@@ -100,8 +117,8 @@ export function calculateDateRangeFromWeek(week: number, semester: SemesterConfi
     }).format(d);
 
   return {
-    startDate: fmt(startDate),
-    endDate: fmt(endDate),
+    startDate: fmt(start),
+    endDate: fmt(end),
   };
 }
 
@@ -114,9 +131,8 @@ export function getCurrentWeek(semester: SemesterConfig = DEFAULT_SEMESTER): num
 }
 
 /**
- * 检查日期是否在学期范围内
- * @param date 待检查的日期
- * @returns true 如果日期有效，false 否则
+ * 检查日期是否可选。允许的范围是「开学前 6 天」到学期最后一天：
+ * 开学前一周内的补课/提前开课（记第 0 周）可选，更早的日期属于上学期不可选。
  */
 export function isValidFutureDate(date: string | Date, semester: SemesterConfig = DEFAULT_SEMESTER): boolean {
   let dateStr: string;
@@ -134,18 +150,28 @@ export function isValidFutureDate(date: string | Date, semester: SemesterConfig 
   const checkDate = parseDateBJ(dateStr);
   const startDate = parseDateBJ(semester.startDate);
 
+  const minDate = parseDateBJ(semester.startDate);
+  minDate.setDate(minDate.getDate() - 6);
+
   const endDate = parseDateBJ(semester.startDate);
   endDate.setDate(endDate.getDate() + (semester.totalWeeks - 1) * 7 + 6);
 
-  return checkDate.getTime() >= startDate.getTime() && checkDate.getTime() <= endDate.getTime();
+  return checkDate.getTime() >= minDate.getTime() && checkDate.getTime() <= endDate.getTime();
 }
 
 /**
- * 获取最小可选日期（学期第一天）
+ * 获取最小可选日期（第 0 周的第一天，即开学前一周的周一）
  * @returns 最小日期的 YYYY-MM-DD 格式字符串
  */
 export function getMinSelectableDate(semester: SemesterConfig = DEFAULT_SEMESTER): string {
-  return semester.startDate;
+  const minDate = parseDateBJ(semester.startDate);
+  minDate.setDate(minDate.getDate() - 7);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(minDate);
 }
 
 /**

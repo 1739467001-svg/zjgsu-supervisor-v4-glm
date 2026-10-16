@@ -97,16 +97,21 @@ export function parseWeekNumbers(weekStr: string): number[] {
   return [...weeks].sort((a, b) => a - b);
 }
 
-/** 把周次数组还原成「第1|2|3周」的写法，供界面展示 */
+/** 把周次数组还原成「第1|2|3周」的写法，供界面展示；0（开学前）显示为「第0周（开学前）」 */
 export function formatWeekNumbers(weeks: number[]): string {
-  return weeks.length > 0 ? `第${weeks.join("|")}周` : "";
+  if (weeks.length === 0) return "";
+  if (weeks.includes(0)) {
+    const rest = weeks.filter((w) => w > 0);
+    return `第0周（开学前）${rest.length > 0 ? `|第${rest.join("|")}周` : ""}`;
+  }
+  return `第${weeks.join("|")}周`;
 }
 
-/** 某个日期落在学期第几周（第一周记为 1） */
+/** 某个日期落在学期第几周（第一周记为 1；早于起始日的开学前日期记为 0；无效日期返回 -1） */
 export function weekOfDate(date: string, semesterStartDate: string): number {
   const d = Date.parse(date + "T00:00:00Z");
   const s = Date.parse(semesterStartDate + "T00:00:00Z");
-  if (Number.isNaN(d) || Number.isNaN(s)) return 0;
+  if (Number.isNaN(d) || Number.isNaN(s)) return -1;
   return Math.floor((d - s) / (7 * 86400000)) + 1;
 }
 
@@ -304,19 +309,26 @@ function parseMba(rows: any[][], headerRow: number, opts: ParseOptions): ParseRe
 
   for (const { first: row, dates } of groups.values()) {
     const courseName = cell(row, idx.courseName);
-    // 起始日之前的日期按第 0 周换算会被整体剔除，课程凭空消失（实测 2026-09-12/13 的
-    // 16 门集中班课全部落空）。学期第一周从起始日（周一）起算，先于它的日期属于
-    // 开学前的加课，并入第 1 周，同时把原始日期记入警告供人工核对。
+    // 早于学期起始日（第一周周一）的日期是开学前的加课（如 MBA 提前开学的集中班），
+    // 按全校校历统一口径记为第 0 周，不再并入第 1 周 —— 周次全校对齐才能按周筛选/统计。
+    // 远早于起始日（第 -1 周及更早）视为上学期课程，剔除并告警供人工核对。
     const weeks = [...new Set(dates.map((d) => {
       const w = weekOfDate(d, start);
+      // 0 与 -1 都收敛到「第 0 周」：0 是起始日前 1-7 天，-1 是再往前一周（极个别
+      // 课表把上学期末的补课也排进来）；都记 0 并入 preTerm 警告供人工核对
+      if (w < 0) {
+        preTermDates.add(d);
+        return -1;
+      }
       if (w === 0) {
         preTermDates.add(d);
-        return 1;
+        return 0;
       }
       return w;
     }))]
       .filter((w) => {
-        if (w < 1 || (totalWeeks > 0 && w > totalWeeks)) {
+        // 第 0 周合法（开学前）；-1 及更小是远早于学期的日期，剔除
+        if (w < 0 || (totalWeeks > 0 && w > totalWeeks)) {
           outOfRange.add(w);
           return false;
         }
@@ -362,12 +374,12 @@ function parseMba(rows: any[][], headerRow: number, opts: ParseOptions): ParseRe
   if (badDate > 0) warnings.push(`${badDate} 条记录日期无法解析，已跳过`);
   if (preTermDates.size > 0) {
     warnings.push(
-      `${preTermDates.size} 个上课日期（${[...preTermDates].sort().join("、")}）早于学期起始日，已并入第 1 周；如实际是上学期课程请人工核对`
+      `${preTermDates.size} 个上课日期（${[...preTermDates].sort().join("、")}）早于学期起始日，已按全校校历记为第 0 周（开学前）；如实际是上学期课程请人工核对`
     );
   }
   if (outOfRange.size > 0) {
     warnings.push(
-      `有日期换算出第 ${[...outOfRange].sort((a, b) => a - b).join("、")} 周，超出 1~${totalWeeks || "?"} 周范围，已剔除；请核对学期起始日`
+      `有日期换算出第 ${[...outOfRange].sort((a, b) => a - b).join("、")} 周，超出 0~${totalWeeks || "?"} 周范围，已剔除；请核对学期起始日`
     );
   }
 

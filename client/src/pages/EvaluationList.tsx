@@ -276,7 +276,7 @@ export default function EvaluationList() {
 
                       <p className="text-xs mt-2" style={{ color: "oklch(0.65 0.02 240)" }}>
                         {evaluation.listenDate ? `听课日期：${formatDateOnlyBJ(evaluation.listenDate)}` : ""}
-                        {evaluation.actualWeek ? ` · 第${evaluation.actualWeek}周` : ""}
+                        {evaluation.actualWeek != null ? ` · ${evaluation.actualWeek === 0 ? "开学前" : `第${evaluation.actualWeek}周`}` : ""}
                         {" · "}提交于 {formatDateBJ(evaluation.createdAt, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                       </p>
                     </div>

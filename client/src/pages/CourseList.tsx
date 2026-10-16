@@ -227,7 +227,7 @@ export default function CourseList() {
                 <SelectContent>
                   <SelectItem value="all">全部周次</SelectItem>
                   {WEEKS.map((w) => (
-                    <SelectItem key={w} value={w.toString()}>第 {w} 周</SelectItem>
+                    <SelectItem key={w} value={w.toString()}>{w === 0 ? "开学前（第 0 周）" : `第 ${w} 周`}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -292,9 +292,9 @@ export default function CourseList() {
                   {filters.weekday} <X className="w-2.5 h-2.5" />
                 </Badge>
               )}
-              {filters.week && (
+              {filters.week != null && (
                 <Badge variant="outline" className="text-xs h-6 gap-1 cursor-pointer hover:bg-red-50" style={{ borderColor: "oklch(0.55 0.18 245)", color: "oklch(0.35 0.13 245)" }} onClick={() => handleClearFilter("week")}>
-                  第{filters.week}周 <X className="w-2.5 h-2.5" />
+                  {filters.week === 0 ? "开学前" : `第${filters.week}周`} <X className="w-2.5 h-2.5" />
                 </Badge>
               )}
               {filters.teacher.trim() && (
@@ -512,11 +512,12 @@ export default function CourseList() {
                     const isEvaluated = evaluatedWeeks.includes(w);
                     const isUsed = usedWeeks.includes(w);
                     const disabled = isEvaluated || isUsed;
+                    const base = w === 0 ? "开学前（第 0 周）" : `第 ${w} 周`;
                     const label = isEvaluated
-                      ? `第 ${w} 周（已评价）`
+                      ? `${base}（已评价）`
                       : isUsed
-                      ? `第 ${w} 周（已计划）`
-                      : `第 ${w} 周`;
+                      ? `${base}（已计划）`
+                      : base;
                     return (
                       <SelectItem
                         key={w}

@@ -65,11 +65,23 @@ describe("周次解析", () => {
     expect(formatWeekNumbers([1, 6, 7])).toBe("第1|6|7周");
     expect(formatWeekNumbers([])).toBe("");
   });
+
+  it("第 0 周（开学前）在周次文本里明确标注，不与正常周次混淆", () => {
+    expect(formatWeekNumbers([0, 5])).toBe("第0周（开学前）|第5周");
+    expect(formatWeekNumbers([0])).toBe("第0周（开学前）");
+  });
 });
 
 describe("日期换算周次", () => {
   it("学期第一周的周一算第 1 周", () => {
     expect(weekOfDate("2026-09-14", SEMESTER_START)).toBe(1);
+  });
+
+  it("早于起始日的开学前日期算第 0 周", () => {
+    expect(weekOfDate("2026-09-12", SEMESTER_START)).toBe(0);
+    expect(weekOfDate("2026-09-13", SEMESTER_START)).toBe(0);
+    // 远早于起始日返回负数，导入侧据此剔除并告警（视为上学期课程）
+    expect(weekOfDate("2026-08-30", SEMESTER_START)).toBeLessThan(0);
   });
 
   it("第一周的周日仍算第 1 周", () => {
@@ -174,15 +186,15 @@ describe("MBA 课表：把上课场次归并成课程", () => {
       period: "09:00-12:00",
       academicYear: "2026-2027",
       semester: "第一学期",
-      // 09-12 早于起始日（09-14），并入第 1 周；10-17 是第 5 周
-      weekNumbers: [1, 5],
+      // 09-12 早于起始日（09-14），按全校校历统一口径记第 0 周（开学前）；10-17 是第 5 周
+      weekNumbers: [0, 5],
       // MBA 没有「单双周」列，周次文本写进 weekType，课程列表「周次」列才有显示
-      weekType: "第1|5周",
-      customWeeks: "第1|5周",
+      weekType: "第0周（开学前）|第5周",
+      customWeeks: "第0周（开学前）|第5周",
       studentCount: 18,
     });
     // 起始日之前的日期要有明确警告，供人工核对是不是上学期课程
-    expect(res.warnings.join()).toMatch(/早于学期起始日，已并入第 1 周/);
+    expect(res.warnings.join()).toMatch(/早于学期起始日，已按全校校历记为第 0 周（开学前）/);
   });
 
   it("考试场次不算授课，不进课表", () => {
@@ -205,7 +217,7 @@ describe("MBA 课表：把上课场次归并成课程", () => {
       semesterStartDate: SEMESTER_START, totalWeeks: TOTAL_WEEKS,
     });
     expect(res.courses[0].weekNumbers).toEqual([]);
-    expect(res.warnings.join()).toMatch(/超出 1~18 周范围/);
+    expect(res.warnings.join()).toMatch(/超出 0~18 周范围/);
   });
 
   it("MBA 课表没有校区列，按研究生院确认的口径统一填教工路", () => {

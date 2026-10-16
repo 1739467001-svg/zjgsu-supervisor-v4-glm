@@ -200,7 +200,8 @@ export default function EvaluationForm() {
       setForm((prev) => ({
         ...prev,
         listenDate: listenDateStr,
-        actualWeek: evalData.actualWeek || todayDefaults.actualWeek,
+        // 0 是合法周次（开学前），不能用 || 短路，否则第 0 周的评价编辑时会丢周次
+        actualWeek: evalData.actualWeek ?? todayDefaults.actualWeek,
         score_teaching_content: evalData.score_teaching_content || undefined,
         score_course_objective: evalData.score_course_objective || undefined,
         score_reference_sharing: evalData.score_reference_sharing || undefined,
@@ -601,7 +602,9 @@ export default function EvaluationForm() {
             <div className="space-y-1">
               <Label className="text-xs" style={{ color: "oklch(0.52 0.025 240)" }}>听课日期</Label>
               <Input type="date" value={form.listenDate} onChange={(e) => handleListenDateChange(e.target.value)} min={minDate} max={maxDate} className="h-8 text-xs" />
-              <p className="text-xs mt-0.5" style={{ color: "oklch(0.65 0.02 240)" }}>周次：第{form.actualWeek || "—"}周</p>
+              <p className="text-xs mt-0.5" style={{ color: "oklch(0.65 0.02 240)" }}>
+                周次：{form.actualWeek == null ? "—" : form.actualWeek === 0 ? "开学前（第0周）" : `第${form.actualWeek}周`}
+              </p>
             </div>
             <div className="space-y-1">
               <Label className="text-xs" style={{ color: "oklch(0.52 0.025 240)" }}>实际周次</Label>
@@ -611,7 +614,7 @@ export default function EvaluationForm() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">未指定</SelectItem>
-                  {WEEKS.map((w) => <SelectItem key={w} value={w.toString()}>第{w}周</SelectItem>)}
+                  {WEEKS.map((w) => <SelectItem key={w} value={w.toString()}>{w === 0 ? "开学前（第0周）" : `第${w}周`}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>

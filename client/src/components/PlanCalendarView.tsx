@@ -136,7 +136,7 @@ export default function PlanCalendarView({ plans, onStatusUpdate, isUpdating }: 
   const handlePrevWeek = () => {
     const idx = availableWeeks.indexOf(currentWeek);
     if (idx > 0) setCurrentWeek(availableWeeks[idx - 1]);
-    else if (currentWeek > 1) setCurrentWeek(currentWeek - 1);
+    else if (currentWeek > 0) setCurrentWeek(currentWeek - 1);
   };
 
   const handleNextWeek = () => {
@@ -155,13 +155,13 @@ export default function PlanCalendarView({ plans, onStatusUpdate, isUpdating }: 
             size="sm"
             className="h-8 w-8 p-0"
             onClick={handlePrevWeek}
-            disabled={currentWeek <= 1}
+            disabled={currentWeek <= 0}
           >
             <ChevronLeft className="w-4 h-4" />
           </Button>
           <div className="text-center min-w-[80px]">
             <span className="text-base font-semibold" style={{ color: "oklch(0.18 0.025 240)" }}>
-              第 {currentWeek} 周
+              {currentWeek === 0 ? "开学前（第0周）" : `第 ${currentWeek} 周`}
             </span>
           </div>
           <Button
@@ -191,7 +191,7 @@ export default function PlanCalendarView({ plans, onStatusUpdate, isUpdating }: 
                 color: w === currentWeek ? "white" : "oklch(0.40 0.025 240)",
               }}
             >
-              第{w}周
+              {w === 0 ? "开学前" : `第${w}周`}
             </button>
           ))}
           {availableWeeks.length > 8 && (
@@ -353,7 +353,7 @@ export default function PlanCalendarView({ plans, onStatusUpdate, isUpdating }: 
         >
           <BookOpen className="w-10 h-10" style={{ color: "oklch(0.75 0.02 240)" }} />
           <p className="text-sm" style={{ color: "oklch(0.55 0.025 240)" }}>
-            第 {currentWeek} 周暂无听课计划
+            {currentWeek === 0 ? "开学前（第0周）暂无听课计划" : `第 ${currentWeek} 周暂无听课计划`}
           </p>
           <Button
             variant="outline"
@@ -399,7 +399,7 @@ export default function PlanCalendarView({ plans, onStatusUpdate, isUpdating }: 
                 <span>教室：{selectedPlan.course?.classroom || "-"}</span>
                 <span>学院：{selectedPlan.course?.college || "-"}</span>
                 <span>时间：{selectedPlan.course?.weekday} {selectedPlan.course?.period}</span>
-                <span>计划周次：第{selectedPlan.planWeek}周</span>
+                <span>计划周次：{selectedPlan.planWeek === 0 ? "开学前（第0周）" : `第${selectedPlan.planWeek}周`}</span>
               </div>
             </div>
             <button
