@@ -291,7 +291,7 @@ export default function MyPlans() {
                             >
                               {status.label}
                             </span>
-                            {plan.planWeek && (
+                            {plan.planWeek != null && (
                               <span
                                 className="px-2 py-0.5 rounded-full text-xs"
                                 style={{
@@ -299,7 +299,7 @@ export default function MyPlans() {
                                   color: "oklch(0.35 0.13 245)",
                                 }}
                               >
-                                第{plan.planWeek}周
+                                {plan.planWeek === 0 ? "开学前" : `第${plan.planWeek}周`}
                               </span>
                             )}
                           </div>

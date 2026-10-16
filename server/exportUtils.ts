@@ -142,7 +142,7 @@ export function generateEvaluationExcel(evaluations: EvaluationExportData[]): Bu
       "督导专家": s.name || "—",
       "督导角色": getSupervisorRoleLabel(s),
       "听课日期": ev.listenDate ? formatDateOnlyBJ(ev.listenDate) : "—",
-      "实际周次": ev.actualWeek ? `第${ev.actualWeek}周` : "—",
+      "实际周次": ev.actualWeek == null ? "—" : ev.actualWeek === 0 ? "开学前" : `第${ev.actualWeek}周`,
       "综合评分": ev.overallScore || "—",
     };
     // 添加所有评分维度列
@@ -465,7 +465,7 @@ export function generatePrintableHtml(evaluations: EvaluationExportData[]): stri
     const s = (ev as any).supervisor || {};
     const weekdayPeriod = ((escapeHtml(c.weekday) || '') + ' ' + (escapeHtml(c.period) || '')).trim() || '—';
     const listenDateStr = ev.listenDate ? formatDateOnlyBJ(ev.listenDate) : '—';
-    const weekStr = ev.actualWeek ? '第' + ev.actualWeek + '周' : '—';
+    const weekStr = ev.actualWeek == null ? '—' : ev.actualWeek === 0 ? '开学前' : '第' + ev.actualWeek + '周';
     const scoreStr = ev.overallScore ? '<strong style="color:var(--ink);">' + ev.overallScore.toFixed(1) + '/5</strong>' : '—';
 
     let infoHtml = '';

@@ -22,8 +22,11 @@ export function useSemester() {
 
     return {
       semester,
-      /** 周次下拉选项，如 [1..19] */
-      weeks: Array.from({ length: semester.totalWeeks }, (_, i) => i + 1),
+      /**
+       * 周次下拉选项，如 [0..18]。0 = 开学前（全校校历统一以第一周周一为起点，
+       * MBA 等提前开课的课落在 0，全校口径一致才能按周筛选/统计）。
+       */
+      weeks: [0, ...Array.from({ length: semester.totalWeeks }, (_, i) => i + 1)],
       /** 学期显示名，如 "2025-2026 第二学期"；未配置时为 undefined */
       label: data ? `${data.academicYear} ${data.name}` : undefined,
       isLoading,

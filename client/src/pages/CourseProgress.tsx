@@ -229,9 +229,9 @@ export default function CourseProgress() {
                             <div className="flex items-center gap-2 text-xs" style={{ color: "oklch(0.40 0.025 240)" }}>
                               <Eye className="w-3 h-3" style={{ color: "oklch(0.35 0.13 245)" }} />
                               <span>督导：{ev.supervisor?.name || "未知"}</span>
-                              {ev.actualWeek && course.evaluations.length > 1 && (
+                              {ev.actualWeek != null && course.evaluations.length > 1 && (
                                 <span className="px-1.5 py-0.5 rounded-full" style={{ background: "oklch(0.93 0.018 240)", color: "oklch(0.35 0.13 245)" }}>
-                                  第{ev.actualWeek}周
+                                  {ev.actualWeek === 0 ? "开学前" : `第${ev.actualWeek}周`}
                                 </span>
                               )}
                               {ev.overallScore && (

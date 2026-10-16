@@ -207,7 +207,7 @@ export default function EvaluationDetail() {
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4 pt-4 text-xs" style={{ borderTop: "1px solid oklch(0.93 0.006 240)" }}>
             <div><span style={{ color: "oklch(0.52 0.025 240)" }}>督导专家：</span><span className="font-medium" style={{ color: "oklch(0.20 0.025 240)" }}>{supervisor?.name || "-"}</span></div>
             <div><span style={{ color: "oklch(0.52 0.025 240)" }}>听课日期：</span><span className="font-medium" style={{ color: "oklch(0.20 0.025 240)" }}>{evaluation.listenDate ? formatDateOnlyBJ(evaluation.listenDate) : "-"}</span></div>
-            <div><span style={{ color: "oklch(0.52 0.025 240)" }}>实际周次：</span><span className="font-medium" style={{ color: "oklch(0.20 0.025 240)" }}>{evaluation.actualWeek ? `第${evaluation.actualWeek}周` : "-"}</span></div>
+            <div><span style={{ color: "oklch(0.52 0.025 240)" }}>实际周次：</span><span className="font-medium" style={{ color: "oklch(0.20 0.025 240)" }}>{evaluation.actualWeek == null ? "-" : evaluation.actualWeek === 0 ? "开学前（第0周）" : `第${evaluation.actualWeek}周`}</span></div>
             <div><span style={{ color: "oklch(0.52 0.025 240)" }}>评价状态：</span>
               <span className="font-medium px-1.5 py-0.5 rounded-full text-xs" style={{
                 background: evaluation.status === "submitted" ? "oklch(0.93 0.018 160)" : "oklch(0.93 0.01 240)",
