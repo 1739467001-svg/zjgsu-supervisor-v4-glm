@@ -68,7 +68,8 @@ export default function CourseList() {
     if (filters.college) params.college = filters.college;
     if (filters.campus) params.campus = filters.campus;
     if (filters.weekday) params.weekday = filters.weekday;
-    if (filters.week) params.week = filters.week;
+    // 0 是合法周次（开学前），不能用真值判断，否则选第 0 周会退化为全部课程
+    if (filters.week != null) params.week = filters.week;
     if (filters.teacher.trim()) params.teacher = filters.teacher.trim();
     if (filters.courseName.trim()) params.courseName = filters.courseName.trim();
     return params;
