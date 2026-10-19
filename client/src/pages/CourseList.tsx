@@ -31,7 +31,8 @@ const DEFAULT_FILTERS = {
 export default function CourseList() {
   const { user } = useAuth();
   const { semesterId, semester, isHistorical } = useSemesterSelection();
-  const WEEKS = Array.from({ length: semester.totalWeeks }, (_, i) => i + 1);
+  // 0 = 开学前（全校校历统一口径：第一周周一是第 1 周第 1 天，之前记 0）
+  const WEEKS = [0, ...Array.from({ length: semester.totalWeeks }, (_, i) => i + 1)];
   const canAddPlan = !isHistorical && hasAnyRole(user, ["supervisor_expert", "supervisor_leader", "graduate_admin", "admin"]);
 
   // 数据范围文案：院级督导/秘书的课程列表实际已限定本院，标题不应再写"全校"
