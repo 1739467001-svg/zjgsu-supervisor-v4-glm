@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, Info, GraduationCap, Briefcase, Eye } from "lucide-react";
+import { BASE_PATH } from "@/const";
 import { Button } from "@/components/ui/button";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useSemesterSelection } from "@/contexts/SemesterSelection";
@@ -102,7 +103,7 @@ export default function UploadCourses() {
     formData.append("semesterId", String(semesterId));
     formData.append("entry", entry!);
     formData.append("mode", mode);
-    const res = await fetch("/api/upload-courses", {
+    const res = await fetch(`${BASE_PATH}/api/upload-courses`, {
       method: "POST",
       body: formData,
       credentials: "include",
