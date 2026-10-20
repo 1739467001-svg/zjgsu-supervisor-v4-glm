@@ -1,7 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import { Route, Switch } from "wouter";
+import { Route, Router, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Login from "./pages/Login";
@@ -18,6 +18,7 @@ import Notifications from "./pages/Notifications";
 import CourseProgress from "./pages/CourseProgress";
 import UploadCourses from "./pages/UploadCourses";
 import { useAuth } from "./_core/hooks/useAuth";
+import { BASE_PATH } from "./const";
 import { SemesterSelectionProvider } from "./contexts/SemesterSelection";
 import { ActiveRoleProvider } from "./hooks/useActiveRole";
 
@@ -30,15 +31,16 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
     </div>
   </div>;
   if (!user) {
-    window.location.href = "/login";
+    window.location.href = `${BASE_PATH}/login`;
     return null;
   }
   return <SemesterSelectionProvider><ActiveRoleProvider><Component /></ActiveRoleProvider></SemesterSelectionProvider>;
 }
 
-function Router() {
+function AppRoutes() {
   return (
-    <Switch>
+    <Router base={BASE_PATH}>
+      <Switch>
       <Route path="/login" component={Login} />
       <Route path="/" component={() => <ProtectedRoute component={Dashboard} />} />
       <Route path="/courses" component={() => <ProtectedRoute component={CourseList} />} />
@@ -56,6 +58,7 @@ function Router() {
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
+    </Router>
   );
 }
 
@@ -65,7 +68,7 @@ function App() {
       <ThemeProvider defaultTheme="light">
         <TooltipProvider>
           <Toaster position="top-right" />
-          <Router />
+          <AppRoutes />
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>

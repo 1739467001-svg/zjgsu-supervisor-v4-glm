@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { BASE_PATH } from "@/const";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,7 +25,7 @@ export default function Login() {
   const loginMutation = trpc.auth.loginByEmployeeId.useMutation({
     onSuccess: (data) => {
       toast.success(`欢迎回来，${data.user?.name || data.user?.employeeId || ""}！`);
-      window.location.href = "/";
+      window.location.href = `${BASE_PATH}/`;
     },
     onError: (err) => {
       toast.error(err.message || "登录失败，请检查工号和密码");

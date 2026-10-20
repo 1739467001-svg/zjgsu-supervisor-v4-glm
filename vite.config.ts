@@ -154,6 +154,10 @@ const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(
 
 export default defineConfig({
   plugins,
+  // 部署在反向代理子路径（如 /zjgsu-supervisor/）时，构建命令传入
+  // --base=/zjgsu-supervisor/，产物内静态资源引用自动带此前缀；
+  // 默认 "/" 不影响原有根路径部署。
+  base: (process.env.VITE_BASE_PATH ?? "") + "/",
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),

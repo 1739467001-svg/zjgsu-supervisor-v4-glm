@@ -1,5 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { BASE_PATH } from "@/const";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useLocation, useParams } from "wouter";
@@ -104,7 +105,7 @@ export default function EvaluationDetail() {
   });
 
   const handlePrint = () => {
-    window.open(`/api/print/evaluation/${evalId}`, '_blank');
+    window.open(`${BASE_PATH}/api/print/evaluation/${evalId}`, '_blank');
   };
 
   // Handle invalid ID
