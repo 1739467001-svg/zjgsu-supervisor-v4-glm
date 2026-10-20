@@ -114,3 +114,4 @@ temp/
 
 # GitHub Actions 配置：当前凭证无 workflow 权限域，暂不随仓库推送
 .github/workflows/
+server-data*
