@@ -47,14 +47,56 @@ export default function Login() {
 
   return (
     <div
-      className="min-h-screen flex"
+      className="min-h-dvh flex flex-col lg:flex-row"
       style={{
         background:
           "linear-gradient(135deg, oklch(0.20 0.045 245) 0%, oklch(0.30 0.08 240) 50%, oklch(0.22 0.05 250) 100%)",
       }}
     >
-      {/* 左侧装饰区 —— 学术编辑式排版：编号索引 + 金色细线 + 校训 */}
-      <div className="hidden lg:flex lg:w-1/2 flex-col relative overflow-hidden">
+      {/* 移动端顶部横幅：校徽 + 校名 + 副标题（手机/平板可见） */}
+      <div className="lg:hidden px-5 pt-6 pb-2">
+        <div className="flex items-center gap-3">
+          <div
+            className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0"
+            style={{
+              background: "oklch(0.26 0.055 245)",
+              border: "1px solid oklch(0.72 0.14 85 / 0.5)",
+            }}
+          >
+            <GraduationCap className="w-5 h-5" style={{ color: "oklch(0.72 0.14 85)" }} />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-base font-bold leading-tight" style={{ color: "oklch(0.95 0.008 240)" }}>
+              浙江工商大学
+            </h1>
+            <p className="text-[11px] mt-0.5 leading-tight" style={{ color: "oklch(0.60 0.02 240)" }}>
+              研究生院 · 督导管理系统
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* 移动端统计条：真实数据（手机/平板可见） */}
+      <div className="lg:hidden px-5 pb-2">
+        <div
+          className="grid grid-cols-3 gap-2 py-2.5 px-3 rounded-xl"
+          style={{ borderTop: "none", background: "oklch(1 0 0 / 0.06)" }}
+        >
+          {summaryItems.map(({ value, label }) => (
+            <div key={label} className="text-center min-w-0">
+              <div className="text-base font-bold tabular-nums" style={{ color: "oklch(0.72 0.14 85)" }}>
+                {value}
+              </div>
+              <div className="text-[10px] mt-0.5" style={{ color: "oklch(0.62 0.02 240)" }}>
+                {label}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 左侧装饰区 —— 学术编辑式排版：编号索引 + 金色细线 + 校训（电脑/电视可见） */}
+      <div className="hidden lg:flex lg:w-[46%] xl:w-[48%] flex-col relative overflow-hidden flex-shrink-0">
         {/* 背景：淡学术网格 + 水印大字 */}
         <div
           className="absolute inset-0 opacity-[0.05] pointer-events-none"
@@ -160,43 +202,25 @@ export default function Login() {
       </div>
 
       {/* 右侧登录表单 */}
-      <div className="flex-1 flex items-center justify-center p-6 lg:p-12">
+      <div className="flex-1 flex items-center justify-center px-4 py-6 sm:px-6 lg:p-12 min-w-0">
         <div className="w-full max-w-md">
-          {/* 移动端标题 */}
-          <div className="lg:hidden text-center mb-8">
-            <div className="flex justify-center mb-4">
-              <div
-                className="w-16 h-16 rounded-full flex items-center justify-center"
-                style={{ background: "oklch(0.28 0.055 245)" }}
-              >
-                <GraduationCap className="w-8 h-8" style={{ color: "oklch(0.72 0.14 85)" }} />
-              </div>
-            </div>
-            <h1 className="text-2xl font-bold" style={{ color: "oklch(0.95 0.008 240)" }}>
-              浙江工商大学
-            </h1>
-            <p className="text-sm mt-1" style={{ color: "oklch(0.70 0.02 240)" }}>
-              研究生院督导管理系统
-            </p>
-          </div>
-
-          {/* 登录卡片 */}
+          {/* 登录卡片（移动端标题已移至页面顶部横幅，卡片内不再重复） */}
           <div
-            className="rounded-2xl p-8 shadow-2xl"
+            className="rounded-2xl p-5 sm:p-7 lg:p-8 shadow-2xl"
             style={{
               background: "oklch(1 0 0)",
               border: "1px solid oklch(0.87 0.012 240)",
             }}
           >
             {/* 标题 */}
-            <div className="flex items-center gap-3 mb-8">
+            <div className="flex items-center gap-3 mb-6 lg:mb-8">
               <div
-                className="w-10 h-10 rounded-lg flex items-center justify-center"
+                className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
                 style={{ background: "oklch(0.35 0.13 245)" }}
               >
                 <Shield className="w-5 h-5 text-white" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <h3 className="text-lg font-semibold" style={{ color: "oklch(0.18 0.025 240)" }}>
                   工号登录
                 </h3>
@@ -206,7 +230,7 @@ export default function Login() {
               </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
               {/* 工号输入 */}
               <div className="space-y-2">
                 <Label
@@ -224,13 +248,14 @@ export default function Login() {
                   <Input
                     id="employeeId"
                     type="text"
+                    inputMode="numeric"
                     placeholder="请输入您的工号"
                     value={employeeId}
                     onChange={(e) => setEmployeeId(e.target.value)}
                     className="h-11 pl-10 text-base"
                     style={{ borderColor: "oklch(0.87 0.012 240)" }}
                     autoComplete="username"
-                    autoFocus
+                    autoFocus={!window.matchMedia?.("(pointer: coarse)").matches}
                   />
                 </div>
               </div>
@@ -267,18 +292,19 @@ export default function Login() {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors p-1 -m-1"
                     style={{ color: "oklch(0.60 0.025 240)" }}
+                    aria-label={showPassword ? "隐藏密码" : "显示密码"}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
 
-              {/* 登录按钮 */}
+              {/* 登录按钮：移动端加大触控区 */}
               <Button
                 type="submit"
-                className="w-full h-11 text-base font-medium mt-2"
+                className="w-full h-12 text-base font-medium mt-2"
                 style={{ background: "oklch(0.35 0.13 245)", color: "white" }}
                 disabled={loginMutation.isPending}
               >
@@ -293,9 +319,9 @@ export default function Login() {
               </Button>
             </form>
 
-            {/* 提示信息 */}
+            {/* 提示信息：移动端字号略缩 */}
             <div
-              className="mt-5 p-3 rounded-lg text-xs"
+              className="mt-4 sm:mt-5 p-3 rounded-lg text-xs leading-relaxed"
               style={{
                 background: "oklch(0.96 0.008 240)",
                 color: "oklch(0.50 0.025 240)",
@@ -310,9 +336,9 @@ export default function Login() {
               <p>• 如遇问题请联系研究生院管理员</p>
             </div>
 
-            {/* 角色说明 */}
+            {/* 角色说明：移动端两列保持，缩小内边距 */}
             <div
-              className="mt-5 pt-5"
+              className="mt-4 sm:mt-5 pt-4 sm:pt-5"
               style={{ borderTop: "1px solid oklch(0.92 0.008 240)" }}
             >
               <p
@@ -330,14 +356,14 @@ export default function Login() {
                 ].map(({ role, color }) => (
                   <div
                     key={role}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg"
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg min-w-0"
                     style={{ background: "oklch(0.97 0.004 240)" }}
                   >
                     <div
                       className="w-2 h-2 rounded-full flex-shrink-0"
                       style={{ background: color }}
                     />
-                    <span className="text-xs" style={{ color: "oklch(0.40 0.025 240)" }}>
+                    <span className="text-xs truncate" style={{ color: "oklch(0.40 0.025 240)" }}>
                       {role}
                     </span>
                   </div>
@@ -347,7 +373,7 @@ export default function Login() {
           </div>
 
           <p
-            className="text-center text-xs mt-6"
+            className="text-center text-xs mt-5 sm:mt-6"
             style={{ color: "oklch(0.55 0.02 240)" }}
           >
             © 2026 浙江工商大学研究生院 · 督导管理系统
