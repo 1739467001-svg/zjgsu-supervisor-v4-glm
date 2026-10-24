@@ -496,12 +496,19 @@ export async function createListeningPlan(plan: InsertListeningPlan) {
     }
   }
 
-  await db.insert(listeningPlans).values(plan);
+  // 用自增 insertId 按主键回读：createdAt 只有秒级精度，同秒内连建两条
+  // （同一门课补不同周次的计划）会打平，按 createdAt 倒序会取回错误的行（2026-10-25 第2轮测试发现）
+  const insertResult = await db.insert(listeningPlans).values(plan);
+  const insertId = Number(insertResult[0]?.insertId ?? 0);
+  if (insertId > 0) {
+    const rows = await db.select().from(listeningPlans).where(eq(listeningPlans.id, insertId)).limit(1);
+    if (rows[0]) return rows[0];
+  }
   const result = await db
     .select()
     .from(listeningPlans)
     .where(and(eq(listeningPlans.supervisorId, plan.supervisorId!), eq(listeningPlans.courseId, plan.courseId!)))
-    .orderBy(desc(listeningPlans.createdAt))
+    .orderBy(desc(listeningPlans.id))
     .limit(1);
   return result[0];
 }
@@ -642,12 +649,19 @@ export async function createEvaluation(evaluation: InsertCourseEvaluation) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
   
-  await db.insert(courseEvaluations).values(evaluation);
+  // 用自增 insertId 按主键回读：createdAt 只有秒级精度，同秒内连建两条评价
+  // 会打平，按 createdAt 倒序会取回错误的行、把别的评价 id 返回给前端（2026-10-25 第2轮测试发现）
+  const insertResult = await db.insert(courseEvaluations).values(evaluation);
+  const insertId = Number(insertResult[0]?.insertId ?? 0);
+  if (insertId > 0) {
+    const rows = await db.select().from(courseEvaluations).where(eq(courseEvaluations.id, insertId)).limit(1);
+    if (rows[0]) return rows[0];
+  }
   const result = await db
     .select()
     .from(courseEvaluations)
     .where(eq(courseEvaluations.supervisorId, evaluation.supervisorId!))
-    .orderBy(desc(courseEvaluations.createdAt))
+    .orderBy(desc(courseEvaluations.id))
     .limit(1);
   return result[0];
 }
