@@ -270,7 +270,7 @@ describe.runIf(REAL_STANDARD && existsSync(REAL_STANDARD))("真实课表：研�
 });
 
 describe.runIf(REAL_MBA && existsSync(REAL_MBA))("真实课表：MBA 课表", () => {
-  it("817 条上课场次归并为 MBA 学院的课程，周次落在 1~18 周内", () => {
+  it("817 条上课场次归并为 MBA 学院的课程，周次落在 0~18 周内", () => {
     const res = parseCourseWorkbook(readFileSync(REAL_MBA!), {
       semesterStartDate: SEMESTER_START, totalWeeks: TOTAL_WEEKS,
     });
@@ -280,7 +280,9 @@ describe.runIf(REAL_MBA && existsSync(REAL_MBA))("真实课表：MBA 课表", ()
     expect(new Set(res.courses.map((c) => c.college))).toEqual(new Set(["MBA学院"]));
 
     const allWeeks = res.courses.flatMap((c) => c.weekNumbers);
-    expect(Math.min(...allWeeks)).toBeGreaterThanOrEqual(1);
+    // 下界是 0：v4.0.3 起开学前场次合法记为第 0 周（真实 MBA 课表里有 9/12-9/13
+    // 的周六日课，解析器会出「已记为第 0 周」警告提示人工核对）；越界只看上界
+    expect(Math.min(...allWeeks)).toBeGreaterThanOrEqual(0);
     expect(Math.max(...allWeeks)).toBeLessThanOrEqual(TOTAL_WEEKS);
     // 起始日正确时不应有越界周次
     expect(res.warnings.join()).not.toMatch(/超出/);
