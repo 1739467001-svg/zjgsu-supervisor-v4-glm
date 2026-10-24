@@ -194,6 +194,43 @@ async function recordUserAdminChange(
   });
 }
 
+// 评价提交后通知研究生院主管与本学院教学秘书。
+// 此前通知只在 create 直接提交路径发送，而「草稿自动保存→再提交」是常态流程——
+// 绝大多数真实提交走 update（草稿转提交）路径，导致漏发通知（2026-10-25 第2轮测试发现）。
+async function notifyEvaluationSubmitted(
+  supervisor: { id: number; name?: string | null },
+  course: { courseName: string | null; teacher: string | null; college: string | null } | null,
+  evaluationId: number
+) {
+  const displayName = supervisor.name || "";
+  const admins = await getUsersByRole("graduate_admin");
+  for (const admin of admins) {
+    await createNotification({
+      recipientId: admin.id,
+      senderId: supervisor.id,
+      type: "evaluation_complete",
+      title: "新督导评价提交",
+      content: `${displayName} 完成了对 ${course?.courseName || "课程"} (${course?.teacher || ""}) 的督导评价`,
+      evaluationId,
+    });
+  }
+  if (course?.college) {
+    const collegeKey = course.college.replace(/（.*?）/g, "").replace(/\(.*?\)/g, "");
+    const secretaries = await getUsersByRole("college_secretary");
+    const collegeSecretaries = secretaries.filter((s) => s.college && s.college.includes(collegeKey));
+    for (const secretary of collegeSecretaries) {
+      await createNotification({
+        recipientId: secretary.id,
+        senderId: supervisor.id,
+        type: "evaluation_complete",
+        title: "本学院课程督导评价",
+        content: `${displayName} 完成了对 ${course.courseName} (${course.teacher}) 的督导评价，请查看`,
+        evaluationId,
+      });
+    }
+  }
+}
+
 export const appRouter = router({
   system: systemRouter,
 
@@ -408,7 +445,7 @@ export const appRouter = router({
         listenDate: input.listenDate ? new Date(input.listenDate) : undefined,
       });
 
-      // 如果提交评价，发送通知
+      // 如果提交评价，同步听课计划并通知
       if (input.status === "submitted" && evaluation) {
         // 同步关联的听课计划状态为"已评价"，避免待听课列表仍显示该课程
         const matchedPlanId = await completePendingPlanForEvaluation(ctx.user!.id, input.courseId, input.actualWeek ?? null);
@@ -416,36 +453,7 @@ export const appRouter = router({
           await updateEvaluation(evaluation.id, { planId: matchedPlanId });
         }
 
-        // 通知研究生院主管
-        const admins = await getUsersByRole("graduate_admin");
-        for (const admin of admins) {
-          await createNotification({
-            recipientId: admin.id,
-            senderId: ctx.user!.id,
-            type: "evaluation_complete",
-            title: "新督导评价提交",
-            content: `${ctx.user!.name} 完成了对 ${course?.courseName || "课程"} (${course?.teacher || ""}) 的督导评价`,
-            evaluationId: evaluation.id,
-          });
-        }
-
-        // 通知相关学院教学秘书
-        if (course?.college) {
-          const secretaries = await getUsersByRole("college_secretary");
-          const collegeSecretaries = secretaries.filter(
-            (s) => s.college && course.college && s.college.includes(course.college.replace(/（.*?）/g, "").replace(/\(.*?\)/g, ""))
-          );
-          for (const secretary of collegeSecretaries) {
-            await createNotification({
-              recipientId: secretary.id,
-              senderId: ctx.user!.id,
-              type: "evaluation_complete",
-              title: "本学院课程督导评价",
-              content: `${ctx.user!.name} 完成了对 ${course.courseName} (${course.teacher}) 的督导评价，请查看`,
-              evaluationId: evaluation.id,
-            });
-          }
-        }
+        await notifyEvaluationSubmitted(ctx.user!, course, evaluation.id);
       }
 
       return evaluation;
@@ -469,7 +477,7 @@ export const appRouter = router({
           listenDate: input.data.listenDate ? new Date(input.data.listenDate) : undefined,
         });
 
-        // 首次提交（从草稿变为已提交）时，同步关联听课计划状态
+        // 首次提交（从草稿变为已提交）时，同步关联听课计划状态并通知
         if (input.data.status === "submitted" && existing.status !== "submitted") {
           const matchedPlanId = await completePendingPlanForEvaluation(
             existing.supervisorId,
@@ -479,6 +487,7 @@ export const appRouter = router({
           if (matchedPlanId && !existing.planId) {
             await updateEvaluation(input.id, { planId: matchedPlanId });
           }
+          await notifyEvaluationSubmitted(ctx.user!, course, input.id);
         }
         return { success: true };
       }),

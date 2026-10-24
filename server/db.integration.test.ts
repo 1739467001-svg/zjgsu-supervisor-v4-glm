@@ -212,4 +212,60 @@ describe.skipIf(!TEST_URL)("数据库集成测试", () => {
       expect(stats!.collegeStats.map((r: any) => r.college).join()).toMatch(/未知学院/);
     });
   });
+
+  // 回归（2026-10-25 线上实测发现）：create 后必须按自增主键回读。
+  // createdAt 只有秒级精度，同秒连建两条会打平，旧实现按 createdAt 倒序取回，
+  // 会把另一条的行返回给前端（草稿保存后跳错记录）。
+  describe("create 返回行的正确性（同秒连建不串行）", () => {
+    let activeSemesterId: number;
+
+    beforeAll(async () => {
+      const active = await dbMod.getActiveSemester();
+      activeSemesterId = active!.id;
+    });
+
+    beforeEach(async () => {
+      await db.delete(schema.courseEvaluations);
+      await db.delete(schema.listeningPlans);
+      await db.delete(schema.courses);
+    });
+
+    async function seedCourse(college = "经济学院") {
+      const [res] = await db.insert(schema.courses).values({
+        college, courseName: "同秒连建回归课", teacher: "某老师",
+        weekday: "星期一", period: "第1-2节", classroom: "A101",
+        semesterId: activeSemesterId,
+      });
+      return Number(res.insertId);
+    }
+
+    it("同一督导同秒连建两条评价，create 各自返回正确的行", async () => {
+      const courseA = await seedCourse();
+      const courseB = await seedCourse("法学院");
+      const first = await dbMod.createEvaluation({
+        supervisorId: 1, courseId: courseA, semesterId: activeSemesterId, status: "draft", overallScore: 4,
+      });
+      const second = await dbMod.createEvaluation({
+        supervisorId: 1, courseId: courseB, semesterId: activeSemesterId, status: "draft", overallScore: 5,
+      });
+      expect(Number(first.id)).toBeGreaterThan(0);
+      expect(Number(second.id)).toBeGreaterThan(Number(first.id));
+      expect(first.courseId).toBe(courseA);
+      expect(second.courseId).toBe(courseB);
+      expect(second.overallScore).toBe(5);
+    });
+
+    it("同一门课同秒连建两条不同周次的听课计划，create 各自返回正确的周次", async () => {
+      const course = await seedCourse();
+      const week6 = await dbMod.createListeningPlan({
+        supervisorId: 1, courseId: course, semesterId: activeSemesterId, planWeek: 6, status: "pending",
+      });
+      const week7 = await dbMod.createListeningPlan({
+        supervisorId: 1, courseId: course, semesterId: activeSemesterId, planWeek: 7, status: "pending",
+      });
+      expect(week6.planWeek).toBe(6);
+      expect(week7.planWeek).toBe(7);
+      expect(Number(week7.id)).toBeGreaterThan(Number(week6.id));
+    });
+  });
 });
