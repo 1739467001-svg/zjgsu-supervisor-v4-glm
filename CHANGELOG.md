@@ -1,5 +1,34 @@
 # 更新日志
 
+## v4.0.5（2026-10-25 · 遗留问题集中修复：性能 / 依赖安全 / 登录限流 / SSH）
+
+> 来源：10-23 云服务器体检与 10-24 全量测试报告的遗留问题集中修复。报告见 [测试报告-2026-10-25](./docs/测试报告-2026-10-25.md)。
+
+### 性能（服务器 nginx）
+
+- **JS/CSS 启用 gzip**（`gzip_types` + `gzip_comp_level 6` + `gzip_vary`）：JS 主包 1,242,865 → 285,218 字节（-77%），校外/手机网络首次打开从 17~20 秒级降到约 4 秒级。
+- **静态资源长缓存**：`/assets/*`（内容哈希命名）由应用返回的 `max-age=0` 改写为 `public, max-age=31536000, immutable`，二次访问不再回源协商。
+- **`server_tokens off`**：404 页不再暴露 nginx 版本号。
+
+### 依赖安全（pnpm audit 生产依赖 6 critical + 70 high → 仅剩无修复版项）
+
+- 直接依赖升级：@trpc/* 11.6→11.19、axios 1.12→1.20、drizzle-orm 0.44→0.45、mysql2 3.15→3.24、multer 2.1→2.5、nanoid 5.1.16、zod 4.6、vite 7.1→7.3。
+- **xlsx 0.18.5 → 0.20.3**（SheetJS 官方 CDN 分发版，修复原型污染与 ReDoS；npm 源 0.18 为最后发布版故改用官方 tarball）。
+- pnpm overrides 修复传递依赖：fast-xml-parser 5.11（经 AWS SDK）、proxy-addr 2.0.8、body-parser 1.20.9、path-to-regexp 0.1.13、qs 6.16、dompurify 3.4.17、mermaid 11.17（连带 uuid 11.1.1）。
+- 记录接受的残留（无修复版本发布）：lodash/lodash-es（recharts/mermaid 内部使用，本系统不调用漏洞 API `_.template`）、katex 0.16（被 streamdown 1.4 上游锁定，仅 AI 聊天框数学公式渲染）。
+
+### 登录安全
+
+- **登录失败限流**：同一来源 IP 或同一工号 15 分钟内失败 10 次后，登录接口返回 429「登录尝试次数过多」（进程内滑动窗口，`server/loginRateLimit.ts`），缓解公网爆破；登录成功即解除本次尝试涉及的键。10 个单元用例 + 55 项冒烟 + 隔离实例 HTTP 实测通过。
+
+### 服务器安全（运维，不入代码库）
+
+- SSH 关闭密码登录（`PasswordAuthentication no` + `PermitRootLogin prohibit-password`，sshd_config.d/99-zjgsu-hardening.conf），仅保留密钥登录；此前 24 小时约 57 次爆破尝试将不再有效。
+
+### 测试基线
+
+- 全量 316/316 通过（新增登录限流 10 项）；API 冒烟 55/55；类型检查 ✓；生产构建 ✓。
+
 ## v4.0.4（2026-10-20 · 云服务器重置后重建 + 子路径部署）
 
 > 背景：云服务器 121.43.80.231 于 10-20 被误重置为通用部署平台（原 PM2 部署与每日备份全部丢失，快照已失效）。以 GitHub 代码 + 本地 10-11 线上镜像库为基线，按服务器新规范（Docker Compose + Nginx 子路径）重建。

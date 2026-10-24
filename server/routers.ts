@@ -3,6 +3,7 @@ import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { hasAnyRole, getRoleLabel, normalizeExtraRoles, getScopedCollege as resolveScopedCollege, MissingCollegeScopeError, isCollegeInScope, ASSIGNABLE_ROLES, type RoleAwareUser } from "@shared/roles";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { clientIpOf, ensurePruneTimer, isLoginBlocked, recordLoginFailure, recordLoginSuccess } from "./loginRateLimit";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
@@ -210,19 +211,37 @@ export const appRouter = router({
       return { success: true } as const;
     }),
     // 工号登录
+    // 失败限流（2026-10-25）：同一 IP 或同一工号 15 分钟内失败 10 次后暂时拒绝，
+    // 缓解公网对登录接口的爆破；登录成功即解除本次尝试涉及的键。
     loginByEmployeeId: publicProcedure
       .input(z.object({ employeeId: z.string().min(1), password: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        const user = await getUserByEmployeeId(input.employeeId.trim());
+        ensurePruneTimer();
+        const employeeId = input.employeeId.trim();
+        const limitKeys = [`ip:${clientIpOf(ctx.req)}`, `emp:${employeeId}`];
+        const gate = isLoginBlocked(limitKeys);
+        if (gate.blocked) {
+          const minutes = Math.max(1, Math.ceil(gate.retryAfterSeconds / 60));
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: `登录尝试次数过多，请约 ${minutes} 分钟后再试`,
+          });
+        }
+
+        const user = await getUserByEmployeeId(employeeId);
         if (!user) {
+          recordLoginFailure(limitKeys);
           throw new TRPCError({ code: "NOT_FOUND", message: "工号不存在，请联系管理员" });
         }
 
         // 验证密码（默认密码为工号）
         const expectedPassword = user.password || user.employeeId || "";
         if (input.password !== expectedPassword) {
+          recordLoginFailure(limitKeys);
           throw new TRPCError({ code: "UNAUTHORIZED", message: "密码错误，默认密码为工号" });
         }
+
+        recordLoginSuccess(limitKeys);
 
         // 更新最后登录时间
         await upsertUser({ ...user, lastSignedIn: new Date() });

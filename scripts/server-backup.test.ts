@@ -88,6 +88,13 @@ describe("server-backup.sh 归档校验", () => {
   });
 
   it("旧写法确实会被 SIGPIPE 打成 141 —— 守住这个坑不要再被写回去", () => {
+    // 该行为复现依赖 GNU tar（写管道被 SIGPIPE 打死、退出 141）。
+    // macOS 的 bsdtar 在读端提前关闭时优雅退出 0，旧写法复现不出误报，
+    // 因此仅在 Linux（备份脚本的实际运行环境）上执行；源码层面的
+    // 「禁止 tar tzf | grep」静态扫描（下一项）在所有平台仍然生效。
+    if (process.platform !== "linux") {
+      return;
+    }
     const legacy = 'for must in RESTORE.md; do\n  tar tzf "$ARCHIVE" | grep -q "$must" || die "归档缺少 $must"\ndone\n';
     const result = runVerify(legacy);
     expect(result.code).toBe(1);

@@ -164,7 +164,15 @@ check("解析预览成功(识别总课表/新增1门)", upPreview.status === 200
 const beforeCount = (await call("T9001", "courses.list", {})).data?.total;
 const upConfirm = await upload("T9001", "standard", "confirm");
 const afterCount = (await call("T9001", "courses.list", {})).data?.total;
-check("确认导入成功且课程数+1", upConfirm.status === 200 && upConfirm.body?.success === true && afterCount === beforeCount + 1, `before=${beforeCount} after=${afterCount}`);
+// 确认导入是「UPSERT + 按入口学院范围清理」语义（见 server/uploadCourses.ts）：
+// 课程总数变化 = 新增 − 清理；清理仅针对新课表覆盖学院里不再出现、且无评价/计划引用的课。
+const preview = upPreview.body?.preview ?? {};
+check("确认导入成功且课程数按差量变化", upConfirm.status === 200 && upConfirm.body?.success === true && afterCount === beforeCount + (preview.inserted ?? 0) - (preview.deleted ?? 0), `before=${beforeCount} after=${afterCount} inserted=${preview.inserted} deleted=${preview.deleted}`);
+{
+  const imported = (await call("T9001", "courses.list", { courseName: "冒烟测试课程" })).data;
+  const kept = (await call("T9001", "courses.list", { courseName: "计量经济学A" })).data;
+  check("确认导入后新课在库且被引用课程保留", (imported?.total ?? 0) >= 1 && (kept?.total ?? 0) >= 1, `新课=${imported?.total} 被引用旧课=${kept?.total}`);
+}
 const upPreviewNoWrite = await upload("T9001", "standard", "preview");
 check("预览不重复写入(合并后无新增)", upPreviewNoWrite.body?.preview?.inserted === 0, `inserted=${upPreviewNoWrite.body?.preview?.inserted}`);
 
