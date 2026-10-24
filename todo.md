@@ -442,3 +442,18 @@
 - [x] 零构建部署方案定型：Mac 本地 Linux 容器装 x64 生产依赖（shamefully-hoist 392 包，补 patches/ 目录后 pnpm 成功）→ tar 65MB 限速上传 → 服务器解压 + 挂载运行（app 容器 node dist/index.js，零计算）
 - [x] 公网复验全部通过：登录页 200、统计接口真实数据（1832/24/675）、真实账号登录成功；手机 375（横幅+统计+2输入+登录按钮+无溢出）、平板 768、电脑 1280（左栏+校训）均正常
 - [x] 服务器 DEPLOY.md 增补零构建部署规范，严禁在服务器上执行 build/install
+
+## 遗留问题集中修复 v4.0.5（2026年10月25日）
+
+- [x] 全部测试汇报整理为时间线总览：docs/测试汇报总览.md（14 轮时间线 + 跨轮遗留台账 + 汇报编写约定：每轮带时间节点、修完才汇报）
+- [x] nginx 三项修复（10-24 报告 P1/P2/P3）：gzip_types 全套（JS 主包 1,242,865→285,218 字节 -77%）、/assets/ 哈希资源 immutable 长缓存（proxy_hide_header 压掉应用侧 max-age=0）、server_tokens off
+- [x] SSH 安全加固：核对密钥指纹后 PasswordAuthentication no + prohibit-password（sshd_config.d/99-zjgsu-hardening.conf），新连接密钥登录 ✓ + 密码登录拒绝 ✓ 双向验证；此前 24h ~57 次爆破失效
+- [x] 依赖安全（10-23 体检 P1-2）：生产审计 6 critical + 70 high → 仅剩 3 个无修复版包（lodash/lodash-es/katex，记录接受）；@trpc 11.19/axios 1.20/drizzle 0.45/mysql2 3.24/multer 2.5/nanoid 5.1.16/zod 4.6.7 直接升级，xlsx 换官方 CDN 0.20.3，7 个 pnpm overrides 修传递依赖（fast-xml-parser 5.11/proxy-addr/body-parser 1.20.9/path-to-regexp 0.1.13/qs 6.16/dompurify 3.4.17/mermaid 11.17），vite 7.3.7
+- [x] 登录失败限流（10-23 体检 P2-5）：server/loginRateLimit.ts 进程内滑动窗口，同 IP 或同工号 15 分钟失败 10 次 → 429；接入 loginByEmployeeId，成功登录解除；10 个单测 + 隔离实例 E2E + 线上实测（第 11 次 HTTP 429）全过
+- [x] 新发现并修复：nginx XFF 追加模式可伪造绕过限流 → 督导系统入口改 $remote_addr（drcopilot 同款问题范围外，已记录建议）
+- [x] 全量回归：类型检查 ✓ / 316 测试全过（306+10，97s）/ API 冒烟 55/55（升级后栈隔离实例）/ 生产构建 ✓
+- [x] 零构建部署 v4.0.5：amd64 容器方案卡死改为主机安装（核实生产依赖全纯 JS 无平台差异，15s/378 包）→ 包完整性启动测试（独立 200+真实登录）→ 74MB 上传 MD5 一致 → 服务器先备份（db-20261025_041816）再切换（compose 文件用错一次，改 docker-compose.yml 重建）→ 容器内 xlsx 0.20.3/mysql2 3.24.6 确认 → healthy
+- [x] 公网复测：JS 282KB 0.13~0.17s 下载（此前 6~17s）；响应头三项正确；真实账号（王节祥 1010137）登录/会话掩码/错误分支/登出全过，lastSignedIn 已恢复
+- [x] GUI 旅程（线上 1280+375）：登录页截图、工作台、课程（院级 88 条=库中精确值）、第 0 周筛选生效（0 条）、计划/评价/进度页、手机无溢出、登出+保护路由；IAB 按钮点击问题定性为测试工具渲染面（非产品缺陷）
+- [x] 数据核查定性「10-16 课表文件缺口」：当前库与 09-06 版课表双入口预览 0 漂移（1478+354=1832），重建无差错；10-16 的 2172 门来自当时一版更新课表文件（未留存项目）；待用户向研究生院索取最新课表重传
+- [x] 汇报：docs/测试报告-2026-10-25.md（全程 03:10~05:08 时间节点）
