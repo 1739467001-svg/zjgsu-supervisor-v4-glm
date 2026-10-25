@@ -268,4 +268,34 @@ describe.skipIf(!TEST_URL)("数据库集成测试", () => {
       expect(Number(week7.id)).toBeGreaterThan(Number(week6.id));
     });
   });
+
+  // 回归（2026-10-25 第4轮线上实测发现）：通知列表此前硬编码 LIMIT 50，
+  // 与全量口径的未读数/全部已读矛盾（主管 54 条只可见 50 条）。
+  describe("通知列表不因数量截断", () => {
+    beforeEach(async () => {
+      await db.delete(schema.notifications);
+    });
+
+    it("超过 50 条时全部可见，且与未读计数同口径", async () => {
+      const rows = Array.from({ length: 55 }, (_, i) => ({
+        recipientId: 1,
+        senderId: 2,
+        type: "evaluation_complete",
+        title: `通知 ${i + 1}`,
+        content: "内容",
+        evaluationId: null,
+        isRead: i < 5, // 5 已读 + 50 未读
+      }));
+      await db.insert(schema.notifications).values(rows);
+
+      const list = await dbMod.getNotificationsByUser(1);
+      expect(list).toHaveLength(55);
+
+      const unread = await dbMod.getUnreadNotificationCount(1);
+      expect(unread).toBe(50);
+
+      await dbMod.markAllNotificationsRead(1);
+      expect(await dbMod.getUnreadNotificationCount(1)).toBe(0);
+    });
+  });
 });

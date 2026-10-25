@@ -915,12 +915,15 @@ export async function createNotification(notification: InsertNotification) {
 export async function getNotificationsByUser(userId: number) {
   const db = await getDb();
   if (!db) return [];
+  // 不设 LIMIT：未读数与「全部已读」都是全量口径，列表若截断会出现
+  // 「角标数 > 列表可见数、且旧通知永远无法单独已读」的矛盾
+  //（2026-10-25 第4轮实测：主管 54 条通知只可见 50 条）。单人通知量
+  // 受评价/提醒数天然约束（每年数百级），全量返回无压力。
   return db
     .select()
     .from(notifications)
     .where(eq(notifications.recipientId, userId))
-    .orderBy(desc(notifications.createdAt))
-    .limit(50);
+    .orderBy(desc(notifications.createdAt));
 }
 
 /** 按 id 取通知，用于标记已读前校验收件人 */
