@@ -230,12 +230,15 @@ router.post(
       }
 
 
-      // 统计的是当前学期的课程数，与「全校课程」列表口径一致
+      // 统计的是当前学期的课程数，与「全校课程」列表口径一致。
+      // NULLIF 把空串转 NULL，COUNT(DISTINCT) 才会忽略它——否则 4 条「无授课教师」
+      // 的 MBA 记录会把空串算成一个教师，导入面板显示 676 而登录页是 675
+      //（2026-10-25 第7轮线上确认导入时发现）。
       const [finalStats] = await db
         .select({
           total: sql<number>`count(*)`,
-          teachers: sql<number>`count(distinct ${courses.teacher})`,
-          colleges: sql<number>`count(distinct ${courses.college})`,
+          teachers: sql<number>`count(distinct nullif(${courses.teacher}, ''))`,
+          colleges: sql<number>`count(distinct nullif(${courses.college}, ''))`,
         })
         .from(courses)
         .where(semesterScope);
