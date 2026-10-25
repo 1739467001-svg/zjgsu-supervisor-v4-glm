@@ -59,7 +59,7 @@ import { canViewEvaluation, canMutateListeningPlan } from "@shared/evaluationAcc
 import { isWritableSemester } from "@shared/semesterArchive";
 import { maskPhone, maskPhoneInEmail, validateUserAdminChange, type ProposedUserAdminChange } from "@shared/userAdmin";
 import { sdk } from "./_core/sdk";
-import { generateEvaluationExcel, generateEvaluationPdfHtml, generateEvaluationPdfBuffer } from "./exportUtils";
+import { generateEvaluationExcel, generateEvaluationPdfHtml } from "./exportUtils";
 
 // ============================================================
 // 角色权限中间件
@@ -638,25 +638,10 @@ export const appRouter = router({
         return { buffer: buffer.toString("base64"), filename: `评价_${courseName}.xlsx` };
       }),
 
-    // 单份评价导出（PDF）
-    exportSingleToPdf: protectedProcedure
-      .input(z.object({ evalId: z.number() }))
-      .mutation(async ({ input, ctx }) => {
-        const user = ctx.user!;
-        if (!hasAnyRole(user, ["graduate_admin", "admin", "college_secretary", "supervisor_leader", "supervisor_expert"])) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "无导出权限" });
-        }
-        const evaluation = await getEvaluationById(input.evalId);
-        if (!evaluation) throw new TRPCError({ code: "NOT_FOUND", message: "评价记录不存在" });
-        const course = await getCourseById(evaluation.courseId);
-        if (!canViewEvaluation(user, evaluation, course)) throw new TRPCError({ code: "FORBIDDEN", message: "无权限导出该评价" });
-        const allUsers = await getAllUsers();
-        const supervisor = allUsers.find((u) => u.id === evaluation.supervisorId);
-        const enriched = { ...evaluation, course, supervisor };
-        const pdfBuffer = await generateEvaluationPdfBuffer([enriched]);
-        const courseName = (course?.courseName || "evaluation").replace(/[/\\?%*:|"<>]/g, "-");
-        return { buffer: pdfBuffer.toString("base64"), filename: `评价_${courseName}.pdf` };
-      }),
+    // 单份评价导出（PDF）已于 v4.0.9 移除：该端点依赖 wkhtmltopdf 系统二进制，
+    // 零构建容器（纯净 node:22-alpine）里不存在且不可安装，直连必 500；
+    // 而前端从未调用过它——用户可见的单份 PDF 走「详情打印页」与批量
+    // exportToPdf（HTML + 浏览器打印另存为 PDF），均不依赖外部二进制。
   }),
 
   // ============================================================
