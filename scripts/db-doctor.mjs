@@ -98,6 +98,49 @@ async function main() {
     log(`已连接：${host}${pathname}`);
     log(`模式：${shouldFix ? "修复（--fix）" : "只读体检"}`);
 
+    // ---- 0. 迁移账本一致性与关键表存在性（2026-10-25 第6轮新增） ----
+    // 背景（E-1）：10-20 重建用的基线 dump 谱系缺 user_admin_logs 表且账本只记到 0004，
+    // 账号管理功能因此整体不可用而长期未被发现。此后每次部署/重建后都应跑本节。
+    log("\n── 迁移账本一致性与关键表 ──");
+    {
+      const { readdirSync, existsSync } = await import("node:fs");
+      const { resolve, dirname } = await import("node:path");
+      const { fileURLToPath } = await import("node:url");
+      const drizzleDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "drizzle");
+      const sqlFiles = existsSync(drizzleDir)
+        ? readdirSync(drizzleDir).filter((f) => f.endsWith(".sql")).length
+        : -1; // -1 = 代码目录不在（如仅拷贝脚本运行），跳过文件数比对
+
+      const [rows] = await conn.query("SELECT COUNT(*) AS n FROM __drizzle_migrations");
+      const ledgerRows = Number(rows[0]?.n || 0);
+      if (sqlFiles >= 0 && ledgerRows !== sqlFiles) {
+        console.error(`  ✗ 账本 ${ledgerRows} 行 != drizzle/*.sql ${sqlFiles} 个文件 —— 迁移未全部应用（功能可能整体不可用，见 2026-10-25 E-1）`);
+        process.exitCode = 1;
+      } else {
+        log(`  账本 ${ledgerRows} 行${sqlFiles >= 0 ? ` == 迁移文件 ${sqlFiles} 个` : "（文件数比对跳过：drizzle 目录不在）"} ✓`);
+      }
+
+      const REQUIRED_TABLES = [
+        "users", "courses", "course_evaluations", "listening_plans",
+        "notifications", "semesters", "user_admin_logs",
+      ];
+      let missingTables = 0;
+      for (const t of REQUIRED_TABLES) {
+        const [r] = await conn.query("SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?", [t]);
+        const present = Number(r[0]?.n || 0) > 0;
+        if (!present) {
+          console.error(`  ✗ 缺表：${t}`);
+          missingTables++;
+        }
+      }
+      if (missingTables === 0) {
+        log(`  关键表 ${REQUIRED_TABLES.length}/${REQUIRED_TABLES.length} 在位 ✓`);
+      } else {
+        console.error(`  关键表缺失 ${missingTables} 张 ✗`);
+        process.exitCode = 1;
+      }
+    }
+
     // ---- 1. course_evaluations 的 5 个评分列 ----
     log("\n── course_evaluations「四、教学过程」评分列 ──");
     const evalCols = await getColumns(conn, "course_evaluations");

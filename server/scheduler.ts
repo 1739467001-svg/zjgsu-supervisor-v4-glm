@@ -38,7 +38,7 @@ async function getSemesterConfig(): Promise<{ startDate: string; totalWeeks: num
  * UTC 零点恰好是北京当天 08:00，getUTCDay()/天数差都与该日历日一致，
  * 且不受进程本地时区影响。
  */
-function cstCalendarUtc(date: Date): Date {
+export function cstCalendarUtc(date: Date): Date {
   const ymd = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Shanghai",
     year: "numeric",
@@ -64,7 +64,7 @@ const ISO_TO_CN: Record<number, string> = {
  * 根据给定日期计算学期周次和星期
  * @returns { week: number, weekdayCN: string } | null（超出学期范围则返回null）
  */
-function getSemesterInfo(
+export function getSemesterInfo(
   date: Date,
   semester: { startDate: string; totalWeeks: number }
 ): { week: number; weekdayCN: string } | null {
