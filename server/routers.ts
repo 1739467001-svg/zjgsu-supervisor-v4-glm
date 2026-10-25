@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
+import { isValidFutureDate } from "@shared/dateUtils";
 import { hasAnyRole, getRoleLabel, normalizeExtraRoles, getScopedCollege as resolveScopedCollege, MissingCollegeScopeError, isCollegeInScope, ASSIGNABLE_ROLES, type RoleAwareUser } from "@shared/roles";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { clientIpOf, ensurePruneTimer, isLoginBlocked, recordLoginFailure, recordLoginSuccess } from "./loginRateLimit";
@@ -438,6 +439,14 @@ export const appRouter = router({
 
       const activeSemester = await getActiveSemester();
       await requireCurrentSemester(course.semesterId);
+      // 听课日期服务端校验（2026-10-25 第3轮补上）：此前只有前端拦截，
+      // 直连接口可提交任意日期。口径与前端一致：开学前一周（第 0 周）至学期最后一天。
+      if (input.listenDate && activeSemester) {
+        const sem = { startDate: activeSemester.startDate, totalWeeks: activeSemester.totalWeeks };
+        if (!isValidFutureDate(input.listenDate, sem)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "听课日期超出本学期可选范围（开学前一周至学期最后一天）" });
+        }
+      }
       const evaluation = await createEvaluation({
         ...input,
         supervisorId: ctx.user!.id,
@@ -469,6 +478,13 @@ export const appRouter = router({
         }
         const course = await ensureCourseExists(input.data.courseId);
         ensureCourseInScope(ctx.user!, course);
+        // 听课日期服务端校验（与 create 路径同口径，防止草稿保存时绕过前端改出越界日期）
+        if (input.data.listenDate) {
+          const active = await getActiveSemester();
+          if (active && !isValidFutureDate(input.data.listenDate, { startDate: active.startDate, totalWeeks: active.totalWeeks })) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "听课日期超出本学期可选范围（开学前一周至学期最后一天）" });
+          }
+        }
         await requireCurrentSemester(existing.semesterId);
         await requireCurrentSemester(course.semesterId);
         if (existing.courseId !== input.data.courseId) throw new TRPCError({ code: "BAD_REQUEST", message: "不能改变评价关联的原课程" });
