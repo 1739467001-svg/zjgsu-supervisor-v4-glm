@@ -238,41 +238,9 @@ export function generateEvaluationPdfHtml(evaluations: EvaluationExportData[]): 
   return generatePrintableHtml(evaluations);
 }
 
-/**
- * 调用 wkhtmltopdf 将评价 HTML 转为 PDF 二进制 Buffer
- */
-export async function generateEvaluationPdfBuffer(evaluations: EvaluationExportData[]): Promise<Buffer> {
-  const { execFile } = await import("child_process");
-  const { promisify } = await import("util");
-  const { writeFile, readFile, unlink } = await import("fs/promises");
-  const { tmpdir } = await import("os");
-  const { join } = await import("path");
-  const execFileAsync = promisify(execFile);
-  const html = generateEvaluationPdfHtml(evaluations);
-  const tmpHtml = join(tmpdir(), `eval_${Date.now()}.html`);
-  const tmpPdf = join(tmpdir(), `eval_${Date.now()}.pdf`);
-  try {
-    await writeFile(tmpHtml, html, "utf-8");
-    await execFileAsync("wkhtmltopdf", [
-      "--encoding", "utf-8",
-      "--page-size", "A4",
-      "--margin-top", "15mm",
-      "--margin-bottom", "15mm",
-      "--margin-left", "12mm",
-      "--margin-right", "12mm",
-      "--enable-local-file-access",
-      "--no-stop-slow-scripts",
-      "--quiet",
-      tmpHtml,
-      tmpPdf,
-    ], { timeout: 60000 });
-    const pdfBuffer = await readFile(tmpPdf);
-    return pdfBuffer;
-  } finally {
-    await unlink(tmpHtml).catch(() => {});
-    await unlink(tmpPdf).catch(() => {});
-  }
-}
+// generateEvaluationPdfBuffer（wkhtmltopdf 外部二进制方案）已于 v4.0.9 移除：
+// 零构建容器里没有该二进制且不可安装，而前端从未调用——用户可见的 PDF
+// 导出走 generateEvaluationPdfHtml + 浏览器打印另存为，不依赖外部进程。
 
 /**
  * 生成统计汇总 Excel 文件（保留兼容）
