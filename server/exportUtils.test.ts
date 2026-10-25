@@ -9,7 +9,8 @@
  * 这里守住三件事：两条导出路径必须同源、选中分数不得依赖底色、黑白模式可用。
  */
 import { describe, expect, it } from "vitest";
-import { generatePrintableHtml, generateEvaluationPdfHtml } from "./exportUtils";
+import * as XLSX from "xlsx";
+import { generatePrintableHtml, generateEvaluationPdfHtml, generateEvaluationExcel } from "./exportUtils";
 
 function sampleEvaluation(overrides: Record<string, unknown> = {}) {
   return {
@@ -149,5 +150,43 @@ describe("分页", () => {
   it("表格不会被拦腰截断到两页", () => {
     const html = generatePrintableHtml([sampleEvaluation()]);
     expect(html).toMatch(/page-break-inside:\s*avoid/);
+  });
+});
+
+describe("Excel 导出：双工作表与专业汇总口径（2026-10-25 第3轮补齐的逐格断言）", () => {
+  it("草稿不进导出；专业汇总按学生专业分组统计平均/最高/最低分", () => {
+    const evals = [
+      sampleEvaluation({ id: 1, overallScore: 4.0, course: { courseName: "课A", teacher: "t1", college: "经济学院", studentMajor: "2025|全日制硕士|金融学;" } }),
+      sampleEvaluation({ id: 2, overallScore: 5.0, course: { courseName: "课B", teacher: "t2", college: "经济学院", studentMajor: "2025|全日制硕士|金融学;" } }),
+      sampleEvaluation({ id: 3, status: "draft", course: { courseName: "课C", teacher: "t3", college: "经济学院", studentMajor: "2025|全日制硕士|会计学;" } }),
+    ];
+    const buf = generateEvaluationExcel(evals);
+    const wb = XLSX.read(buf, { type: "buffer" });
+
+    // 双工作表在位
+    expect(wb.SheetNames).toContain("评价数据");
+    expect(wb.SheetNames).toContain("专业汇总");
+
+    // 评价数据表：只含已提交的 2 条
+    const dataRows = XLSX.utils.sheet_to_json<any>(wb.Sheets["评价数据"]);
+    expect(dataRows).toHaveLength(2);
+    expect(dataRows.map((r) => r["课程名称"]).sort()).toEqual(["课A", "课B"]);
+
+    // 专业汇总：金融学 2 条（均分 4.50，最高 5.0 最低 4.0）；只有草稿的会计学不出现
+    const summaryRows = XLSX.utils.sheet_to_json<any>(wb.Sheets["专业汇总"]);
+    const fin = summaryRows.find((r) => String(r["专业"]).includes("金融学"));
+    expect(fin).toBeTruthy();
+    expect(fin["评价总数"]).toBe(2);
+    expect(String(fin["平均综合评分"])).toBe("4.50");
+    expect(String(fin["最高分"])).toBe("5.0");
+    expect(String(fin["最低分"])).toBe("4.0");
+    expect(JSON.stringify(summaryRows)).not.toContain("会计学");
+  });
+
+  it("无已提交评价时导出空表占位，不抛异常", () => {
+    const buf = generateEvaluationExcel([sampleEvaluation({ status: "draft" })]);
+    const wb = XLSX.read(buf, { type: "buffer" });
+    expect(wb.SheetNames.length).toBeGreaterThan(0);
+    expect(JSON.stringify(wb.SheetNames)).toContain("无数据");
   });
 });

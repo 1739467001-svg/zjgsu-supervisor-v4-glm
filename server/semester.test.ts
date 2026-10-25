@@ -25,6 +25,7 @@ vi.mock("./db", () => ({
   getListeningPlansBySupervisor: vi.fn().mockResolvedValue([]),
   createEvaluation: vi.fn().mockResolvedValue({ id: 1, planId: null }),
   updateEvaluation: vi.fn().mockResolvedValue(undefined),
+  getSubmittedEvaluationByCourse: vi.fn().mockResolvedValue(null),
   completePendingPlanForEvaluation: vi.fn().mockResolvedValue(null),
   getCourses: vi.fn().mockResolvedValue({ data: [], total: 0 }),
   getUsedWeeksForCourse: vi.fn().mockResolvedValue({ usedWeeks: [], evaluatedWeeks: [] }),
@@ -97,6 +98,79 @@ describe("查询按学期隔离", () => {
   it("待听课列表只取当前学期，不混入往期遗留计划", async () => {
     await appRouter.createCaller(ctx()).plans.myPlans();
     expect(db.getListeningPlansBySupervisor).toHaveBeenCalledWith(3, ACTIVE_SEMESTER.id);
+  });
+});
+
+// ACTIVE_SEMESTER：2026-09-07 开学、18 周 → 可选范围 2026-09-01（第 0 周周一）~ 2027-01-10（学期末）
+describe("听课日期服务端校验（此前仅前端拦截）", () => {
+  it("早于开学前一周的日期被拒绝且不落库", async () => {
+    await expect(
+      appRouter.createCaller(ctx()).evaluations.create({ courseId: 1, status: "draft", listenDate: "2026-08-31" })
+    ).rejects.toThrow("听课日期");
+    expect(db.createEvaluation).not.toHaveBeenCalled();
+  });
+
+  it("学期末之后的日期被拒绝", async () => {
+    await expect(
+      appRouter.createCaller(ctx()).evaluations.create({ courseId: 1, status: "draft", listenDate: "2027-01-11" })
+    ).rejects.toThrow("听课日期");
+  });
+
+  it("开学前一周内（第 0 周）与学期末当天放行", async () => {
+    await appRouter.createCaller(ctx()).evaluations.create({ courseId: 1, status: "draft", listenDate: "2026-09-01" });
+    await appRouter.createCaller(ctx()).evaluations.create({ courseId: 1, status: "draft", listenDate: "2027-01-10" });
+    expect(db.createEvaluation).toHaveBeenCalledTimes(2);
+  });
+
+  it("update 路径同样拒绝越界日期（草稿保存不可绕过）", async () => {
+    vi.mocked(db.getEvaluationById).mockResolvedValue({
+      id: 5, supervisorId: 3, courseId: 1, status: "draft", semesterId: ACTIVE_SEMESTER.id, planId: null,
+    } as any);
+    await expect(
+      appRouter.createCaller(ctx()).evaluations.update({ id: 5, data: { courseId: 1, listenDate: "2026-08-31", status: "draft" } })
+    ).rejects.toThrow("听课日期");
+    expect(db.updateEvaluation).not.toHaveBeenCalled();
+  });
+});
+
+describe("评价提交通知（create 与 update 双路径，v4.0.6 修复的回归守护）", () => {
+  function mockRecipients() {
+    vi.mocked(db.getUsersByRole).mockImplementation(async (role: string) =>
+      role === "graduate_admin"
+        ? ([{ id: 10, name: "主管" }] as any)
+        : ([{ id: 11, name: "秘书", college: "经济学院" }] as any)
+    );
+  }
+
+  it("create 直接提交：主管与本学院秘书都收到通知", async () => {
+    mockRecipients();
+    await appRouter.createCaller(ctx()).evaluations.create({ courseId: 1, status: "submitted" });
+    const recipients = vi.mocked(db.createNotification).mock.calls.map((c: any[]) => c[0].recipientId);
+    expect(recipients).toContain(10);
+    expect(recipients).toContain(11);
+  });
+
+  it("update 草稿转提交：同样通知，evaluationId 指向该评价", async () => {
+    mockRecipients();
+    vi.mocked(db.getEvaluationById).mockResolvedValue({
+      id: 5, supervisorId: 3, courseId: 1, status: "draft", semesterId: ACTIVE_SEMESTER.id, planId: null,
+    } as any);
+    await appRouter.createCaller(ctx()).evaluations.update({ id: 5, data: { courseId: 1, status: "submitted" } });
+    const calls = vi.mocked(db.createNotification).mock.calls as any[];
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((c) => c[0].evaluationId === 5)).toBe(true);
+    const recipients = calls.map((c) => c[0].recipientId);
+    expect(recipients).toContain(10);
+    expect(recipients).toContain(11);
+  });
+
+  it("已提交评价再次保存不重复通知", async () => {
+    mockRecipients();
+    vi.mocked(db.getEvaluationById).mockResolvedValue({
+      id: 5, supervisorId: 3, courseId: 1, status: "submitted", semesterId: ACTIVE_SEMESTER.id, planId: null,
+    } as any);
+    await appRouter.createCaller(ctx()).evaluations.update({ id: 5, data: { courseId: 1, status: "submitted" } });
+    expect(db.createNotification).not.toHaveBeenCalled();
   });
 });
 
