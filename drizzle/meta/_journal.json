@@ -85,6 +85,13 @@
       "when": 1791184049467,
       "tag": "0011_brave_landau",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1793012700000,
+      "tag": "0012_add_password_reminder",
+      "breakpoints": true
     }
   ]
 }

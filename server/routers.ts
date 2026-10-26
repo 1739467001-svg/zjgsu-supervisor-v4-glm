@@ -39,6 +39,7 @@ import {
   getUserByEmployeeId,
   getUsersByRole,
   markAllNotificationsRead,
+  markPasswordRemindersRead,
   markNotificationRead,
   updateEvaluation,
   getListeningPlanById,
@@ -56,6 +57,12 @@ import {
   getRecentUserAdminLogs,
 } from "./db";
 import { canViewEvaluation, canMutateListeningPlan } from "@shared/evaluationAccess";
+
+/** 密码是否仍为初始密码（空或与工号相同）——前端据此弹改密提醒（2026-10-26 用户需求） */
+function isDefaultPassword(user: { password?: string | null; employeeId?: string | null }): boolean {
+  if (!user) return false;
+  return !user.password || user.password === user.employeeId;
+}
 import { isWritableSemester } from "@shared/semesterArchive";
 import { maskPhone, maskPhoneInEmail, validateUserAdminChange, type ProposedUserAdminChange } from "@shared/userAdmin";
 import { sdk } from "./_core/sdk";
@@ -240,8 +247,17 @@ export const appRouter = router({
   // ============================================================
   auth: router({
     // 与登录响应一致：对外返回的用户信息中手机号掩码（页面显示本就掩码）
+    // 与登录响应一致：对外返回的用户信息中手机号掩码（页面显示本就掩码）。
+    // isDefaultPassword 标记「密码仍为初始密码（工号）」：前端据此在首次进入时
+    // 弹出改密提醒并投递一条站内信（2026-10-26 用户需求）。
     me: publicProcedure.query((opts) =>
-      opts.ctx.user ? { ...opts.ctx.user, phone: maskPhone(opts.ctx.user.phone) } : null
+      opts.ctx.user
+        ? {
+            ...opts.ctx.user,
+            phone: maskPhone(opts.ctx.user.phone),
+            isDefaultPassword: isDefaultPassword(opts.ctx.user),
+          }
+        : null
     ),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
@@ -283,6 +299,31 @@ export const appRouter = router({
 
         // 更新最后登录时间
         await upsertUser({ ...user, lastSignedIn: new Date() });
+
+        // 密码仍为初始密码（工号）时投递一条站内信提醒改密（2026-10-26 用户需求）。
+        // 只在「本账号尚无此类未读提醒」时发，避免每次登录重复堆积；改密后不再发。
+        if (isDefaultPassword(user)) {
+          try {
+            const existing = await getNotificationsByUser(user.id);
+            const alreadyReminded = existing.some(
+              (n) => n.type === "password_reminder" && !n.isRead
+            );
+            if (!alreadyReminded) {
+              await createNotification({
+                recipientId: user.id,
+                senderId: 0,
+                type: "password_reminder",
+                title: "安全提醒：请修改初始密码",
+                content:
+                  "您的密码仍为初始密码（与工号相同）。为保障账号安全，请点击右上角头像菜单中的「修改密码」及时修改。修改后本提醒自动消失。",
+                isRead: false,
+              });
+            }
+          } catch (err) {
+            // 提醒失败不阻断登录
+            console.error("[Auth] 发送改密提醒失败:", err);
+          }
+        }
 
         // 签发JWT（使用sdk.createSessionToken，openId格式为emp_工号）
         const token = await sdk.createSessionToken(user.openId, { name: user.name || user.employeeId || "" });
@@ -751,6 +792,12 @@ export const appRouter = router({
 
     markAllRead: protectedProcedure.mutation(async ({ ctx }) => {
       await markAllNotificationsRead(ctx.user!.id);
+      return { success: true };
+    }),
+
+    // 改密成功后把本账号未读的改密提醒标记已读（铃铛角标即时消失）
+    markPasswordRemindersRead: protectedProcedure.mutation(async ({ ctx }) => {
+      await markPasswordRemindersRead(ctx.user!.id);
       return { success: true };
     }),
   }),
