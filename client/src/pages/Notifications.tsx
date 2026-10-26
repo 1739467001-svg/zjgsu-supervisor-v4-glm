@@ -2,7 +2,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Bell, CheckCheck, Eye } from "lucide-react";
+import { Bell, CheckCheck, Eye, ShieldAlert } from "lucide-react";
 import { formatDateBJ } from "@shared/dateUtils";
 import { useLocation } from "wouter";
 
@@ -72,15 +72,15 @@ export default function Notifications() {
               >
                 <div className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5" style={{
-                    background: n.isRead ? "oklch(0.93 0.01 240)" : "oklch(0.93 0.018 245)",
-                    color: n.isRead ? "oklch(0.52 0.025 240)" : "oklch(0.35 0.13 245)",
+                    background: n.isRead ? "oklch(0.93 0.01 240)" : n.type === "password_reminder" ? "oklch(0.95 0.04 30)" : "oklch(0.93 0.018 245)",
+                    color: n.isRead ? "oklch(0.52 0.025 240)" : n.type === "password_reminder" ? "oklch(0.50 0.16 30)" : "oklch(0.35 0.13 245)",
                   }}>
-                    <Bell className="w-4 h-4" />
+                    {n.type === "password_reminder" ? <ShieldAlert className="w-4 h-4" /> : <Bell className="w-4 h-4" />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-medium" style={{ color: "oklch(0.18 0.025 240)" }}>{n.title}</p>
-                      {!n.isRead && <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />}
+                      {!n.isRead && <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: n.type === "password_reminder" ? "#e65100" : "#3b82f6" }} />}
                     </div>
                     <p className="text-xs mt-1 leading-relaxed" style={{ color: "oklch(0.52 0.025 240)" }}>{n.content}</p>
                     <p className="text-xs mt-2" style={{ color: "oklch(0.65 0.02 240)" }}>

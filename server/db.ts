@@ -946,6 +946,16 @@ export async function markAllNotificationsRead(userId: number) {
   await db.update(notifications).set({ isRead: true }).where(eq(notifications.recipientId, userId));
 }
 
+/** 改密成功后把该账号未读的改密提醒标记已读（2026-10-26 用户需求） */
+export async function markPasswordRemindersRead(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(notifications)
+    .set({ isRead: true })
+    .where(and(eq(notifications.recipientId, userId), eq(notifications.type, "password_reminder")));
+}
+
 export async function getUnreadNotificationCount(userId: number) {
   const db = await getDb();
   if (!db) return 0;

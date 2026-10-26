@@ -56,7 +56,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { KeyRound, Eye, EyeOff } from "lucide-react";
+import { KeyRound, Eye, EyeOff, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
 /**
@@ -147,7 +147,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 }
 
 function DashboardLayoutContent({ children, setSidebarWidth }: { children: React.ReactNode; setSidebarWidth: (w: number) => void }) {
-  const { user, logout } = useAuth();
+  const { user, logout, refresh } = useAuth();
   const { activeRole, setActiveRole, effectiveRoles, canSwitch } = useActiveRole();
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
@@ -170,9 +170,15 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
       toast.success("密码修改成功！下次登录请使用新密码");
       setShowChangePwd(false);
       setOldPwd(""); setNewPwd(""); setConfirmPwd("");
+      // 刷新会话信息：auth.me 的 isDefaultPassword 标记随之更新；
+      // 同时把站内信里的改密提醒一并标记已读（铃铛角标即时消失）
+      refresh();
+      markPasswordRemindersRead.mutate();
     },
     onError: (err) => toast.error(err.message),
   });
+
+  const markPasswordRemindersRead = trpc.notifications.markPasswordRemindersRead.useMutation();
 
   const handleChangePwd = () => {
     if (!oldPwd || !newPwd || !confirmPwd) {
@@ -203,6 +209,29 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   const { data: unreadCount = 0 } = trpc.notifications.unreadCount.useQuery(undefined, {
     refetchInterval: 30000,
   });
+
+  // 初始密码强提醒（2026-10-26 用户需求）：登录后密码仍为工号时，首次进入弹窗
+  // 引导改密；改密成功后由 onSuccess 刷新 auth.me，标记随之消失。
+  // sessionStorage 保证「本次会话只弹一次」，改掉之前每次登录都会再提醒。
+  const isDefaultPwd = Boolean((user as any)?.isDefaultPassword);
+  const [pwdRemindOpen, setPwdRemindOpen] = useState(false);
+  const PWD_REMIND_KEY = "pwd-remind-dismissed";
+  useEffect(() => {
+    if (isDefaultPwd) {
+      const dismissed = sessionStorage.getItem(PWD_REMIND_KEY) !== "1";
+      if (dismissed) setPwdRemindOpen(true);
+    } else {
+      sessionStorage.removeItem(PWD_REMIND_KEY);
+    }
+  }, [isDefaultPwd]);
+  const remindNow = () => {
+    setPwdRemindOpen(false);
+    setShowChangePwd(true);
+  };
+  const remindLater = () => {
+    setPwdRemindOpen(false);
+    sessionStorage.setItem(PWD_REMIND_KEY, "1");
+  };
 
   useEffect(() => {
     if (isCollapsed) setIsResizing(false);
@@ -353,6 +382,27 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
           style={{ zIndex: 50, background: isResizing ? "oklch(0.35 0.13 245)" : "transparent" }}
         />
       </div>
+
+      {/* 初始密码强提醒（密码仍为工号时每次登录弹一次，可稍后再说） */}
+      <Dialog open={pwdRemindOpen} onOpenChange={(open) => { if (!open) remindLater(); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="w-5 h-5" style={{ color: "oklch(0.55 0.18 30)" }} />
+              安全提醒：您还在使用初始密码
+            </DialogTitle>
+            <DialogDescription>
+              您的密码仍为初始密码（与工号相同）。为保障账号与评价数据安全，建议立即修改。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={remindLater}>稍后再说</Button>
+            <Button onClick={remindNow} style={{ background: "oklch(0.35 0.13 245)" }}>
+              <KeyRound className="w-4 h-4 mr-1.5" /> 立即修改密码
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* 修改密码 Dialog */}
       <Dialog open={showChangePwd} onOpenChange={(open) => {

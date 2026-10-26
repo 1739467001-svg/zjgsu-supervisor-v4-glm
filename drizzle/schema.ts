@@ -247,7 +247,7 @@ export const notifications = mysqlTable("notifications", {
   // 发送者ID（0=系统）
   senderId: int("senderId").default(0),
   // 通知类型：evaluation_complete=评价完成, plan_reminder=听课提醒
-  type: mysqlEnum("type", ["evaluation_complete", "plan_reminder", "system"]).notNull(),
+  type: mysqlEnum("type", ["evaluation_complete", "plan_reminder", "system", "password_reminder"]).notNull(),
   // 通知标题
   title: varchar("title", { length: 256 }).notNull(),
   // 通知内容
