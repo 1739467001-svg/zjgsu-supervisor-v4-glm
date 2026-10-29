@@ -250,15 +250,17 @@ export const appRouter = router({
     // 与登录响应一致：对外返回的用户信息中手机号掩码（页面显示本就掩码）。
     // isDefaultPassword 标记「密码仍为初始密码（工号）」：前端据此在首次进入时
     // 弹出改密提醒并投递一条站内信（2026-10-26 用户需求）。
-    me: publicProcedure.query((opts) =>
-      opts.ctx.user
-        ? {
-            ...opts.ctx.user,
-            phone: maskPhone(opts.ctx.user.phone),
-            isDefaultPassword: isDefaultPassword(opts.ctx.user),
-          }
-        : null
-    ),
+    // password 字段绝不出网：前端有 isDefaultPassword 布尔标记就够了，
+    // 把口令原文带给客户端属于无谓暴露（2026-10-30 第9轮 F-1 修复）。
+    me: publicProcedure.query((opts) => {
+      if (!opts.ctx.user) return null;
+      const { password: _password, ...safeUser } = opts.ctx.user;
+      return {
+        ...safeUser,
+        phone: maskPhone(opts.ctx.user.phone),
+        isDefaultPassword: isDefaultPassword(opts.ctx.user),
+      };
+    }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -331,8 +333,10 @@ export const appRouter = router({
         ctx.res.cookie(COOKIE_NAME, token, cookieOptions);
 
         // 登录响应里的手机号做掩码：接口返回值可能被缓存/打印，
-        // 页面本就只显示掩码，响应明文没有业务用途（2026-10-06 体检收紧）
-        return { success: true, user: { ...user, phone: maskPhone(user.phone) } };
+        // 页面本就只显示掩码，响应明文没有业务用途（2026-10-06 体检收紧）；
+        // password 同样不出网（2026-10-30 第9轮 F-1 修复）。
+        const { password: _password, ...safeUser } = user;
+        return { success: true, user: { ...safeUser, phone: maskPhone(user.phone) } };
       }),
 
     // 修改密码
@@ -879,11 +883,16 @@ export const appRouter = router({
       // 会议纪要安全底线：前端页面不得出现完整手机号。接口层直接返回掩码
       // （防扒接口），完整号码仅存于数据库与通讯录原件。
       // email 中用手机号做前缀的（139xxxx1234@163.com）同样打码。
-      return visible.map((u) => ({
-        ...u,
-        phone: maskPhone(u.phone),
-        email: maskPhoneInEmail(u.email),
-      }));
+      // password 一并剥离：账号列表从来不需要口令原文，主管/秘书都能调这个接口，
+      // 把全校（或全院）口令带回客户端是无谓暴露（2026-10-30 第9轮 F-1 修复）。
+      return visible.map((u) => {
+        const { password: _password, ...safeUser } = u;
+        return {
+          ...safeUser,
+          phone: maskPhone(u.phone),
+          email: maskPhoneInEmail(u.email),
+        };
+      });
     }),
 
     // 重置他人密码（上线前会议：研究生院主管可给其他账号设置修改密码；
