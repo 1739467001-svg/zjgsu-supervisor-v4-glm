@@ -16,7 +16,7 @@
  * 这样可确保 course_evaluations 和 listening_plans 的 courseId 关联不断裂
  */
 
-import { Router, Request, Response } from "express";
+import { Router, Request, Response, NextFunction } from "express";
 import multer from "multer";
 import { getDb, getActiveSemester } from "./db";
 import { courses, listeningPlans, courseEvaluations } from "../drizzle/schema";
@@ -195,7 +195,11 @@ router.post(
             updated: toUpdate.length,
             deleted: toDeleteIds.length,
             keptReferenced,
-            preserved: existingCourses.length - toDeleteIds.length - keptReferenced,
+            // preserved = 本入口完全不碰的课（另一份课表/其他学院）。
+            // 旧算法漏减 matchedIds，把本次要更新的课也算进「原样保留」，
+            // 两个入口都恒等于当前学期总数 1832（2026-10-30 第9轮 F-2 修复）
+            preserved:
+              existingCourses.length - matchedIds.size - toDeleteIds.length - keptReferenced,
             warnings: parsed.warnings,
             collegeDist,
             semesterLabel: `${active.academicYear} ${active.name}`,
@@ -264,6 +268,16 @@ router.post(
         message: "服务器内部错误：" + (err.message || "未知错误"),
       });
     }
+  }
+);
+
+// multer 中间件的错误（格式过滤 / 大小超限）若不在此接住，会落进 Express
+// 默认错误页：调用方拿到 500 HTML「Internal Server Error」而不是可读的 400 JSON
+//（2026-10-30 第9轮 A8：.txt 文件直传接口复现）。
+router.use(
+  (err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    const message = err instanceof Error ? err.message : "文件上传失败";
+    return res.status(400).json({ success: false, message });
   }
 );
 

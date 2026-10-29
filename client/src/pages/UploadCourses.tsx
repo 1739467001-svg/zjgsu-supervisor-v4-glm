@@ -282,7 +282,7 @@ export default function UploadCourses() {
             ))}
           </div>
           <p className="text-xs text-blue-700">
-            本入口学院内已有 {preview.deleted} 门课不在新文件中，确认后将被删除；{preview.keptReferenced > 0 && <>另有 {preview.keptReferenced} 门因已有评价/听课计划关联而保留；</>}其他学院（另一份课表）的 {preview.preserved} 门课原样保留，导入前已自动备份，确认前不会写入任何数据。
+            本入口学院内已有 {preview.deleted} 门课不在新文件中，确认后将被删除；{preview.keptReferenced > 0 && <>另有 {preview.keptReferenced} 门因已有评价/听课计划关联而保留；</>}其他学院（另一份课表）的 {preview.preserved} 门课原样保留，确认前不会写入任何数据。
           </p>
           {preview.collegeDist.length > 0 && (
             <p className="text-xs text-blue-600 mt-1.5">
