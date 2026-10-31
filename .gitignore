@@ -115,3 +115,5 @@ temp/
 # GitHub Actions 配置：当前凭证无 workflow 权限域，暂不随仓库推送
 .github/workflows/
 server-data*
+服务器数据基线_20261011_恢复用.sql.gz
+*备份*.sql.gz
