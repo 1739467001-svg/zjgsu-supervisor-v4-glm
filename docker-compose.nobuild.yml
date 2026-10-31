@@ -1,0 +1,36 @@
+# 无构建部署方案:本地构建产物 rsync 上去,node:22-alpine 直接运行
+# 避免 2核2G 服务器跑 770 包 pnpm install(正是这次压垮服务器的原因)
+services:
+  app:
+    image: public.ecr.aws/docker/library/node:22-alpine
+    container_name: zjgsu-supervisor
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    working_dir: /app
+    command: ["node", "dist/index.js"]
+    environment:
+      NODE_ENV: production
+      TZ: Asia/Shanghai
+      PORT: "3000"
+      DATABASE_URL: mysql://root:${ZJGSU_DB_ROOT_PASSWORD}@db:3306/zjgsu_supervisor
+      JWT_SECRET: ${ZJGSU_JWT_SECRET}
+    volumes:
+      - ./app-dist:/app:ro
+    ports:
+      - "127.0.0.1:3002:3000"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.50"
+    logging:
+      driver: json-file
+      options: { max-size: "1m", max-file: "3" }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/trpc/auth.me"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s

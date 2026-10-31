@@ -242,12 +242,14 @@ export async function updateUserSupervisorScope(userId: number, scope: "school" 
 }
 
 /**
- * 直接更新用户密码，不经过upsertUser，确保密码可靠写入数据库
+ * 直接更新用户密码，不经过upsertUser，确保密码可靠写入数据库。
+ * 第13轮起一律以 scrypt 哈希落库（唯一写入口，明文不出现在存储层）。
  */
 export async function updateUserPassword(userId: number, newPassword: string) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(users).set({ password: newPassword, updatedAt: new Date() }).where(eq(users.id, userId));
+  const { hashPassword } = await import("./passwordCrypto");
+  await db.update(users).set({ password: hashPassword(newPassword), updatedAt: new Date() }).where(eq(users.id, userId));
 }
 
 // ============================================================

@@ -533,6 +533,11 @@ export default function CourseList() {
                   })}
                 </SelectContent>
               </Select>
+              {!planWeek && planWeek !== 0 && (
+                <p className="text-xs" style={{ color: "oklch(0.55 0.14 60)" }}>
+                  提示：不指定周次的计划不会收到系统自动听课提醒（提醒按「明天周次」匹配）。
+                </p>
+              )}
             </div>
           </div>
           <DialogFooter>

@@ -12,6 +12,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 import * as db from "./db";
+import { hashPassword } from "./passwordCrypto";
 
 vi.mock("./db", () => ({
   getActiveSemester: vi.fn().mockResolvedValue({ id: 2, startDate: "2026-09-14", totalWeeks: 18 }),
@@ -128,6 +129,22 @@ describe("登录时投递初始密码提醒", () => {
     vi.mocked(db.getUserByEmployeeId).mockResolvedValue(fakeUser({ password: "Abc123456" }) as any);
     await appRouter.createCaller(ctx()).auth.loginByEmployeeId({ employeeId: "1010137", password: "Abc123456" });
     expect(db.createNotification).not.toHaveBeenCalled();
+  });
+
+  it("口令为哈希（内容=工号，第13轮哈希化存储）→ 视为初始并投递", async () => {
+    vi.mocked(db.getUserByEmployeeId).mockResolvedValue(fakeUser({ password: hashPassword("1010137") }) as any);
+    await appRouter.createCaller(ctx()).auth.loginByEmployeeId({ employeeId: "1010137", password: "1010137" });
+    expect(db.createNotification).toHaveBeenCalled();
+  });
+
+  it("口令为哈希（内容≠工号）→ 不投递；历史明文登录成功后惰性升级为哈希", async () => {
+    vi.mocked(db.getUserByEmployeeId).mockResolvedValue(fakeUser({ password: hashPassword("NewPass9") }) as any);
+    await appRouter.createCaller(ctx()).auth.loginByEmployeeId({ employeeId: "1010137", password: "NewPass9" });
+    expect(db.createNotification).not.toHaveBeenCalled();
+
+    vi.mocked(db.getUserByEmployeeId).mockResolvedValue(fakeUser({ password: "1010137" }) as any); // 历史明文
+    await appRouter.createCaller(ctx()).auth.loginByEmployeeId({ employeeId: "1010137", password: "1010137" });
+    expect(db.updateUserPassword).toHaveBeenCalledWith(42, "1010137"); // 惰性升级（函数内哈希落库）
   });
 });
 

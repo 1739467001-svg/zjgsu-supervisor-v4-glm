@@ -57,12 +57,7 @@ import {
   getRecentUserAdminLogs,
 } from "./db";
 import { canViewEvaluation, canMutateListeningPlan } from "@shared/evaluationAccess";
-
-/** 密码是否仍为初始密码（空或与工号相同）——前端据此弹改密提醒（2026-10-26 用户需求） */
-function isDefaultPassword(user: { password?: string | null; employeeId?: string | null }): boolean {
-  if (!user) return false;
-  return !user.password || user.password === user.employeeId;
-}
+import { hashPassword, isDefaultPassword, verifyPassword } from "./passwordCrypto";
 import { isWritableSemester } from "@shared/semesterArchive";
 import { maskPhone, maskPhoneInEmail, validateUserAdminChange, type ProposedUserAdminChange } from "@shared/userAdmin";
 import { sdk } from "./_core/sdk";
@@ -252,13 +247,13 @@ export const appRouter = router({
     // 弹出改密提醒并投递一条站内信（2026-10-26 用户需求）。
     // password 字段绝不出网：前端有 isDefaultPassword 布尔标记就够了，
     // 把口令原文带给客户端属于无谓暴露（2026-10-30 第9轮 F-1 修复）。
-    me: publicProcedure.query((opts) => {
+    me: publicProcedure.query(async (opts) => {
       if (!opts.ctx.user) return null;
       const { password: _password, ...safeUser } = opts.ctx.user;
       return {
         ...safeUser,
         phone: maskPhone(opts.ctx.user.phone),
-        isDefaultPassword: isDefaultPassword(opts.ctx.user),
+        isDefaultPassword: await isDefaultPassword(opts.ctx.user),
       };
     }),
     logout: publicProcedure.mutation(({ ctx }) => {
@@ -290,9 +285,9 @@ export const appRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "工号不存在，请联系管理员" });
         }
 
-        // 验证密码（默认密码为工号）
-        const expectedPassword = user.password || user.employeeId || "";
-        if (input.password !== expectedPassword) {
+        // 验证密码（第13轮起口令以 scrypt 哈希存储；历史明文行走兼容比对并惰性升级）
+        const passwordCheck = verifyPassword(input.password, user.password, user.employeeId);
+        if (!passwordCheck.ok) {
           recordLoginFailure(limitKeys);
           throw new TRPCError({ code: "UNAUTHORIZED", message: "密码错误，默认密码为工号" });
         }
@@ -302,9 +297,18 @@ export const appRouter = router({
         // 更新最后登录时间
         await upsertUser({ ...user, lastSignedIn: new Date() });
 
+        // 惰性升级：历史明文口令行在登录成功后立即改为哈希存储（幂等、无感）
+        if (passwordCheck.legacyPlaintext) {
+          try {
+            await updateUserPassword(user.id, input.password);
+          } catch (err) {
+            console.error("[Auth] 口令惰性升级失败（不影响本次登录）:", err);
+          }
+        }
+
         // 密码仍为初始密码（工号）时投递一条站内信提醒改密（2026-10-26 用户需求）。
         // 只在「本账号尚无此类未读提醒」时发，避免每次登录重复堆积；改密后不再发。
-        if (isDefaultPassword(user)) {
+        if (await isDefaultPassword(user)) {
           try {
             const existing = await getNotificationsByUser(user.id);
             const alreadyReminded = existing.some(
@@ -346,8 +350,9 @@ export const appRouter = router({
         const user = ctx.user!;
         const dbUser = await getUserByEmployeeId(user.employeeId || "");
         if (!dbUser) throw new TRPCError({ code: "NOT_FOUND", message: "用户不存在" });
-        const expectedPassword = dbUser.password || dbUser.employeeId || "";
-        if (input.oldPassword !== expectedPassword) {
+        // 第13轮：兼容哈希/历史明文两种存储形态
+        const passwordCheck = verifyPassword(input.oldPassword, dbUser.password, dbUser.employeeId);
+        if (!passwordCheck.ok) {
           throw new TRPCError({ code: "UNAUTHORIZED", message: "原密码错误" });
         }
         // 使用专用的updateUserPassword函数，确保密码可靠写入数据库
