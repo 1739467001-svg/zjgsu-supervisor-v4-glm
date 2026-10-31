@@ -18,7 +18,7 @@
 
 import { Router, Request, Response, NextFunction } from "express";
 import multer from "multer";
-import { getDb, getActiveSemester } from "./db";
+import { getDb, getActiveSemester, logUserAdminChange } from "./db";
 import { courses, listeningPlans, courseEvaluations } from "../drizzle/schema";
 import { sql, eq, and, isNull, or, inArray } from "drizzle-orm";
 import { sdk } from "./_core/sdk";
@@ -246,6 +246,23 @@ router.post(
         })
         .from(courses)
         .where(semesterScope);
+
+      // 审计留痕（2026-11-01 第14轮）：课表确认导入是影响面最大的写路径，
+      // 谁在何时导入了哪版课表必须可查（第11轮真实导入只能靠登录时间推断的教训）。
+      // 审计失败不阻断导入结果返回。
+      try {
+        const uploader = (req as any).uploadUser as { id: number; name?: string | null };
+        await logUserAdminChange({
+          adminId: uploader.id,
+          adminName: uploader.name ?? null,
+          targetUserId: uploader.id,
+          targetName: uploader.name ?? null,
+          action: "courseImport",
+          detail: `确认导入${formatLabel}：识别 ${newCourseData.length} 门，新增 ${toInsert.length} / 更新 ${toUpdate.length} / 删除 ${toDeleteIds.length}（目标学期 ${active.academicYear} ${active.name}）`,
+        });
+      } catch (auditErr) {
+        console.error("[upload-courses] 审计写入失败（不影响导入）:", auditErr);
+      }
 
       return res.json({
         success: true,

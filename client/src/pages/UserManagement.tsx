@@ -307,8 +307,8 @@ export default function UserManagement() {
         <div className="bg-white rounded-xl p-4" style={{ border: "1px solid oklch(0.90 0.01 240)" }}>
           <div className="flex items-center gap-2 mb-3">
             <Shield className="w-4 h-4" style={{ color: "oklch(0.35 0.13 245)" }} />
-            <h2 className="text-sm font-semibold" style={{ color: "oklch(0.18 0.025 240)" }}>最近授权变更</h2>
-            <span className="text-xs" style={{ color: "oklch(0.52 0.025 240)" }}>角色、学院、督导范围、密码重置的每次操作都会留痕，最多保留 50 条</span>
+            <h2 className="text-sm font-semibold" style={{ color: "oklch(0.18 0.025 240)" }}>最近管理操作</h2>
+            <span className="text-xs" style={{ color: "oklch(0.52 0.025 240)" }}>角色、学院、督导范围、密码重置、课表导入的每次操作都会留痕</span>
           </div>
           {!auditLogs || auditLogs.length === 0 ? (
             <p className="text-xs" style={{ color: "oklch(0.65 0.02 240)" }}>暂无变更记录。</p>

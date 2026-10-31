@@ -184,7 +184,7 @@ async function guardUserAdminChange(actorId: number, userId: number, change: Pro
 async function recordUserAdminChange(
   actor: { id: number; name?: string | null },
   target: { id: number; name?: string | null },
-  action: "role" | "extraRoles" | "college" | "supervisorScope" | "passwordReset",
+  action: "role" | "extraRoles" | "college" | "supervisorScope" | "passwordReset" | "courseImport",
   detail: string
 ) {
   await logUserAdminChange({
