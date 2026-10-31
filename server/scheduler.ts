@@ -5,7 +5,7 @@
  * - 浙工商研究生课程按"周次+星期"排课，无具体日期
  * - 学期配置优先读 semesters 表的当前学期，无记录时回退到常量
  * - 每天凌晨 0:30（北京时间）运行，计算明天是第几周星期几，
- *   查找所有 status=pending 且 planWeek 匹配的听课计划，
+ *   查找当前学期内所有 status=pending 且 planWeek 匹配的听课计划，
  *   向对应督导专家发送站内信提醒
  *
  * 时区说明：所有"今天是几号"的判断都通过 Intl 强制按北京时间取日历日
@@ -24,11 +24,17 @@ import { eq, and, inArray } from "drizzle-orm";
 /** 数据库无当前学期记录时的兜底配置 */
 const FALLBACK_SEMESTER = { startDate: "2026-03-02", totalWeeks: 19 };
 
+type SemesterConfig = { id?: number; startDate: string; totalWeeks: number };
+
 /** 优先读数据库当前学期；读不到时回退常量 */
-async function getSemesterConfig(): Promise<{ startDate: string; totalWeeks: number }> {
+async function getSemesterConfig(): Promise<SemesterConfig> {
   const active = await getActiveSemester();
   if (active?.startDate) {
-    return { startDate: active.startDate, totalWeeks: active.totalWeeks || FALLBACK_SEMESTER.totalWeeks };
+    return {
+      id: active.id,
+      startDate: active.startDate,
+      totalWeeks: active.totalWeeks || FALLBACK_SEMESTER.totalWeeks,
+    };
   }
   return FALLBACK_SEMESTER;
 }
@@ -136,7 +142,13 @@ export async function sendListeningReminders(): Promise<void> {
         and(
           eq(listeningPlans.status, "pending"),
           eq(listeningPlans.planWeek, tomorrowWeek),
-          eq(courses.weekday, tomorrowWeekday)
+          eq(courses.weekday, tomorrowWeekday),
+          // 学期隔离（2026-10-31 第10轮）：planWeek 是「计划所属学期的第几周」，
+          // 不按学期过滤时，上学期遗留 pending 计划的周次/星期恰好对上当前校历
+          // 就会误提醒（线上实例：徐少丹 2026-10-25 收到已归档学期《用户研究》
+          // 的听课提醒）。只提醒显式标记为当前学期的计划；无当前学期记录的
+          // 全新库（兜底常量路径）没有可依据的学期 id，保持原行为。
+          ...(semester.id != null ? [eq(listeningPlans.semesterId, semester.id)] : [])
         )
       );
 
