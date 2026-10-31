@@ -154,4 +154,56 @@ describe.skipIf(!TEST_URL)("scheduler.sendListeningReminders（集成）", () =>
     const hitPlan = plans.find((p: any) => p.planWeek === week && p.supervisorId === 990001);
     expect(hitPlan?.status).toBe("pending");
   });
+
+  it("归档学期的遗留 pending 计划不提醒（周次/星期恰好对上当前校历也不发，第10轮 I-1）", async () => {
+    const { sendListeningReminders, cstCalendarUtc, getSemesterInfo } = await import("./scheduler");
+    const tomorrowBJ = new Date(cstCalendarUtc(new Date()).getTime() + 86400000);
+    const info = getSemesterInfo(tomorrowBJ, semesterCfg);
+    expect(info).not.toBeNull();
+    const { week, weekdayCN } = info!;
+    const activeId = (await dbMod.getActiveSemester())!.id;
+
+    // 造一个已归档学期（isActive=false；academicYear 仍为 TEST 以便 afterAll 清理）
+    await db.insert(schema.semesters).values({
+      academicYear: "TEST", name: "调度测试归档学期", startDate: "2026-03-02", totalWeeks: 19, isActive: false,
+    });
+    const archived = await dbMod.getActiveSemester(); // 仍应返回 isActive 的那个
+    expect(archived!.id).toBe(activeId);
+    const archivedId = (
+      await db.select().from(schema.semesters).where(eq(schema.semesters.name, "调度测试归档学期"))
+    )[0]?.id;
+    expect(archivedId).toBeTruthy();
+
+    // 归档学期的课程 + 遗留 pending 计划：planWeek/weekday 故意等于明天的周次/星期
+    const archivedCourseRes = await db.insert(schema.courses).values({
+      college: "测试学院", courseName: "上学期遗留课", teacher: "乙", weekday: weekdayCN,
+      period: "第3-4节", classroom: "B202", semesterId: archivedId,
+    });
+    const archivedCourseId = Number(archivedCourseRes[0]?.insertId);
+    // 对照组：当前学期的命中计划
+    const hitRes = await db.insert(schema.courses).values({
+      college: "测试学院", courseName: "当前学期命中课", teacher: "甲", weekday: weekdayCN,
+      period: "第1-2节", classroom: "A101", semesterId: activeId,
+    });
+    const hitId = Number(hitRes[0]?.insertId);
+
+    await db.insert(schema.listeningPlans).values([
+      { supervisorId: 990003, courseId: archivedCourseId, planWeek: week, status: "pending", semesterId: archivedId, note: "归档遗留-不应提醒" },
+      { supervisorId: 990003, courseId: hitId, planWeek: week, status: "pending", semesterId: activeId, note: "当前学期-应提醒" },
+    ]);
+
+    await sendListeningReminders();
+
+    const notes = await db.select().from(schema.notifications);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]?.recipientId).toBe(990003);
+    expect(notes[0]?.content).toContain("当前学期命中课");
+    expect(notes[0]?.content).not.toContain("上学期遗留课");
+
+    // 清掉本用例造的归档学期，避免污染其他用例
+    await db.delete(schema.listeningPlans);
+    await db.delete(schema.courses);
+    await db.delete(schema.notifications);
+    await db.delete(schema.semesters).where(eq(schema.semesters.name, "调度测试归档学期"));
+  });
 });
