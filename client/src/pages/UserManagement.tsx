@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { hasAnyRole } from "@shared/roles";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -64,6 +65,15 @@ export default function UserManagement() {
   // 有限视图：学院教学秘书（无主管/系统管理员角色）只能查看本院账号并重置密码，
   // 不能改角色/学院/督导范围（那是研究生院主管的职权）
   const limitedView = !hasAnyRole(authUser as any, ["graduate_admin", "admin"]) && hasAnyRole(authUser as any, ["college_secretary"]);
+  // 越权路由守卫（2026-11-01 第17轮 GUI 巡检发现）：无账号管理权限的角色（督导/普通用户）
+  // 手动输入 /users 时，服务端 users.list 本就拒绝、列表为空，但页面仍渲染出标题与
+  // 全 0 统计卡片的空壳，容易误以为"系统里没有账号"。有任一管理角色的直达工作台。
+  const [, navigate] = useLocation();
+  const hasUsersAccess = hasAnyRole(authUser as any, ["graduate_admin", "admin", "college_secretary"]);
+  useEffect(() => {
+    if (authUser && !hasUsersAccess) navigate("/");
+  }, [authUser, hasUsersAccess, navigate]);
+  if (authUser && !hasUsersAccess) return null;
 
   const [resetDialog, setResetDialog] = useState<{ open: boolean; userId?: number; name?: string; pwd: string }>({ open: false, pwd: "" });
   const resetPwdMutation = trpc.users.resetPassword.useMutation({
