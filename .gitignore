@@ -117,3 +117,10 @@ temp/
 server-data*
 服务器数据基线_20261011_恢复用.sql.gz
 *备份*.sql.gz
+
+# 第17轮运维探针（含真实账号信息，不入公开仓库）
+scripts/ops-probe-r17.mjs
+scripts/ops-diag-r17.mjs
+scripts/ops-extra-r17.mjs
+scripts/ops-write-e2e-r17.mjs
+scripts/ops-write-finish-r17.mjs
