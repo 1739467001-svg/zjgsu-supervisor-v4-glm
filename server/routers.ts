@@ -833,12 +833,27 @@ export const appRouter = router({
           totalWeeks: z.number().int().min(1).max(30),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        let created;
         try {
-          return await createSemester(input);
+          created = await createSemester(input);
         } catch (err: any) {
           throw new TRPCError({ code: "BAD_REQUEST", message: err.message || "创建学期失败" });
         }
+        // 学期变更审计（0014 扩展 semester 动作；失败不阻断创建）
+        try {
+          await logUserAdminChange({
+            adminId: ctx.user!.id,
+            adminName: ctx.user!.name ?? null,
+            targetUserId: ctx.user!.id,
+            targetName: ctx.user!.name ?? null,
+            action: "semester",
+            detail: `新建学期 ${input.academicYear} ${input.name}（第一周 ${input.startDate} · 共 ${input.totalWeeks} 周，未激活）`,
+          });
+        } catch (auditErr) {
+          console.error("[semesters.create] 审计写入失败（不影响创建）:", auditErr);
+        }
+        return created;
       }),
 
     update: adminProcedure
@@ -849,14 +864,48 @@ export const appRouter = router({
           totalWeeks: z.number().int().min(1).max(30).optional(),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { id, ...rest } = input;
         await updateSemester(id, rest);
+        // 学期变更审计（失败不阻断修改）
+        try {
+          const sems = await listSemesters();
+          const target = sems.find((s) => s.id === id);
+          const parts = [
+            rest.startDate ? `第一周 → ${rest.startDate}` : null,
+            rest.totalWeeks ? `总周数 → ${rest.totalWeeks}` : null,
+          ].filter(Boolean);
+          await logUserAdminChange({
+            adminId: ctx.user!.id,
+            adminName: ctx.user!.name ?? null,
+            targetUserId: ctx.user!.id,
+            targetName: ctx.user!.name ?? null,
+            action: "semester",
+            detail: `修改学期参数 ${target ? `${target.academicYear} ${target.name}` : `#${id}`}：${parts.join("、") || "无变更"}`,
+          });
+        } catch (auditErr) {
+          console.error("[semesters.update] 审计写入失败（不影响修改）:", auditErr);
+        }
         return { success: true };
       }),
 
-    setActive: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    setActive: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       await setActiveSemester(input.id);
+      // 学期变更审计（失败不阻断切换）——换学期是高危操作，管理组须可见
+      try {
+        const sems = await listSemesters();
+        const target = sems.find((s) => s.id === input.id);
+        await logUserAdminChange({
+          adminId: ctx.user!.id,
+          adminName: ctx.user!.name ?? null,
+          targetUserId: ctx.user!.id,
+          targetName: ctx.user!.name ?? null,
+          action: "semester",
+          detail: `切换当前学期 → ${target ? `${target.academicYear} ${target.name}` : `#${input.id}`}（第一周 ${target?.startDate ?? "?"} · 共 ${target?.totalWeeks ?? "?"} 周）`,
+        });
+      } catch (auditErr) {
+        console.error("[semesters.setActive] 审计写入失败（不影响切换）:", auditErr);
+      }
       return { success: true };
     }),
   }),
