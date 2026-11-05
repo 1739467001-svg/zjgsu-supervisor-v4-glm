@@ -13,15 +13,21 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { CalendarRange, Plus, Check } from "lucide-react";
+import { useSemesterSelection } from "@/contexts/SemesterSelection";
 
 /**
  * 学期配置管理（研究生院主管）。
  *
  * 学期起始日与总周数原先写死在代码里，跨学期需要改代码重新部署；
  * 现在可在此直接配置，并通过切换「当前学期」实现历史数据按学期归档。
+ *
+ * 挂载位置：上传课程数据页（2026-11-06 第20轮换学期演练补齐——组件此前
+ * 已实现但从未挂载，主管在界面上无法新建/切换学期，换学期流程第一步即卡死）。
+ * 激活新学期后自动把顶部学期选择器切到新学期，衔接紧随其后的课表上传。
  */
 export default function SemesterSettings() {
   const utils = trpc.useUtils();
+  const { select } = useSemesterSelection();
   const { data: semesters, isLoading } = trpc.semesters.list.useQuery();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState({ academicYear: "", name: "", startDate: "", totalWeeks: 19 });
@@ -42,11 +48,14 @@ export default function SemesterSettings() {
   });
 
   const setActiveMutation = trpc.semesters.setActive.useMutation({
-    onSuccess: () => {
-      toast.success("当前学期已切换");
+    onSuccess: (_data, variables) => {
+      toast.success("当前学期已切换，已为你选中新学期，可直接上传课表");
       invalidate();
       // 周次换算、可选日期范围、待听课列表均随当前学期变化
       utils.plans.myPlans.invalidate();
+      // 顶部学期选择器同步选中新学期：否则 sessionStorage 里停留的旧学期会让
+      // 本页继续显示「历史学期只读」，主管需要再手动切换一次才能上传
+      if (variables?.id) select(variables.id);
     },
     onError: (err) => toast.error(err.message),
   });

@@ -3,7 +3,10 @@ import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, Info, Grad
 import { BASE_PATH } from "@/const";
 import { Button } from "@/components/ui/button";
 import DashboardLayout from "@/components/DashboardLayout";
+import SemesterSettings from "@/components/SemesterSettings";
 import { useSemesterSelection } from "@/contexts/SemesterSelection";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { hasAnyRole } from "@shared/roles";
 import { trpc } from "@/lib/trpc";
 
 type Entry = "standard" | "mba";
@@ -59,6 +62,9 @@ interface UploadResult {
 
 export default function UploadCourses() {
   const { semesterId, isHistorical } = useSemesterSelection();
+  const { user: authUser } = useAuth();
+  // 学期配置面板仅主管/系统管理员可见（接口层 adminProcedure 同权校验）
+  const isAdminUser = hasAnyRole(authUser as any, ["graduate_admin", "admin"]);
   const utils = trpc.useUtils();
   const [entry, setEntry] = useState<Entry | null>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -147,7 +153,29 @@ export default function UploadCourses() {
     }
   };
 
-  if (isHistorical) return <DashboardLayout><p className="p-6">历史学期档案只读，不允许上传覆盖。请切换至当前学期。</p></DashboardLayout>;
+  if (isHistorical) return (
+    <DashboardLayout>
+      <div className="max-w-2xl mx-auto py-8 px-4">
+        <div className="mb-8">
+          <h1 className="text-2xl font-bold text-gray-900">上传课程数据</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            两个独立导入入口 · 解析预览确认后导入 · 仅更新当前学期，历史档案保持不变
+          </p>
+        </div>
+        {/* 换学期场景：主管激活新学期前/后视图停留在旧学期时会走到这里——
+            面板保留在此，配合引导完成「建学期→设为当前→上传」的完整动线 */}
+        {isAdminUser && (
+          <div className="mb-6">
+            <SemesterSettings />
+          </div>
+        )}
+        <div className="rounded-xl p-5 text-sm" style={{ border: "1px solid oklch(0.90 0.01 240)", background: "oklch(0.97 0.004 240)", color: "oklch(0.35 0.03 240)" }}>
+          当前查看的是历史学期档案（只读，不允许上传覆盖）。请用顶部学期选择器切换到「当前学期」后再上传；
+          若新学期尚未建立或未启用，可在上方「学期配置」中完成。
+        </div>
+      </div>
+    </DashboardLayout>
+  );
   return (<DashboardLayout>
     <div className="max-w-2xl mx-auto py-8 px-4">
       {/* 页面标题 */}
@@ -157,6 +185,13 @@ export default function UploadCourses() {
           两个独立导入入口 · 解析预览确认后导入 · 仅更新当前学期，历史档案保持不变
         </p>
       </div>
+
+      {/* 第零步：学期配置（换学期动线的第一步——先建学期、设为当前，再上传课表） */}
+      {isAdminUser && (
+        <div className="mb-8">
+          <SemesterSettings />
+        </div>
+      )}
 
       {/* 第一步：选择导入入口 */}
       <div className="mb-4 flex items-center gap-2">
