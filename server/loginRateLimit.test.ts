@@ -79,6 +79,38 @@ describe("loginRateLimit", () => {
     expect(_trackedKeyCount()).toBe(0);
   });
 
+  describe("IP键与工号键差异化阈值（第19轮共用出口IP误伤修复）", () => {
+    const t0 = 1_800_000_000_000;
+
+    it("IP 键累计到工号阈值（10）不封锁，到 IP 阈值（40）才封锁", () => {
+      for (let i = 0; i < LOGIN_LIMIT_CONFIG.MAX_FAILURES; i += 1) {
+        recordLoginFailure(["ip:198.51.100.9"], t0);
+      }
+      // 10 次跨工号失败（模拟校园内几位老师各输错几次）——旧代码此处已全校封锁
+      expect(isLoginBlocked(["ip:198.51.100.9"], t0).blocked).toBe(false);
+      for (let i = 0; i < LOGIN_LIMIT_CONFIG.MAX_IP_FAILURES - LOGIN_LIMIT_CONFIG.MAX_FAILURES; i += 1) {
+        recordLoginFailure(["ip:198.51.100.9"], t0);
+      }
+      expect(isLoginBlocked(["ip:198.51.100.9"], t0).blocked).toBe(true);
+    });
+
+    it("工号键 10 次即封锁（单账号爆破防护不变）", () => {
+      for (let i = 0; i < LOGIN_LIMIT_CONFIG.MAX_FAILURES; i += 1) {
+        recordLoginFailure(["emp:1110121"], t0);
+      }
+      expect(isLoginBlocked(["ip:198.51.100.10", "emp:1110121"], t0).blocked).toBe(true);
+    });
+
+    it("混合场景：共用出口 IP 下 10 个工号各错 3 次（IP 累计 30）不误伤", () => {
+      for (let i = 0; i < 10; i += 1) {
+        for (let j = 0; j < 3; j += 1) {
+          recordLoginFailure([`ip:198.51.100.11`, `emp:1110${String(i).padStart(2, "0")}`], t0);
+        }
+      }
+      expect(isLoginBlocked(["ip:198.51.100.11", "emp:111000"], t0).blocked).toBe(false);
+    });
+  });
+
   describe("clientIpOf", () => {
     it("优先取 X-Forwarded-For 首段", () => {
       const ip = clientIpOf({

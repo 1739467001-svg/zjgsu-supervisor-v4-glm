@@ -1,9 +1,16 @@
 // 登录失败限流：进程内滑动窗口计数（单实例部署，无需外部存储）。
-// 按「来源 IP」与「工号」双键计数：任一键在窗口内失败次数达到上限即拒绝该来源的登录尝试，
+// 按「来源 IP」与「工号」双键计数：任一键在窗口内失败次数达到各自上限即拒绝该来源的登录尝试，
 // 登录成功后解除该次尝试涉及的键。限流的是"失败尝试"，正常用户一次成功登录不受影响。
+//
+// 两个上限刻意不同（2026-11-06 第19轮共用出口IP误伤实测后调整）：
+// - 工号键 10 次：单账号爆破防护，精确命中攻击目标；
+// - IP 键 40 次：跨账号喷洒防护。校园网老师共享出口 IP，10 次会把「几位老师各输错
+//   几次密码」放大成全校 15 分钟登录封锁（实测 T2/T3 复现），放宽后正常输错不再误伤，
+//   而喷洒式攻击（一个 IP 轮询大量工号）在 40 次/15分钟仍被有效限速。
 
 const WINDOW_MS = 15 * 60 * 1000; // 统计窗口：15 分钟
-const MAX_FAILURES = 10; // 窗口内最大失败次数
+const MAX_FAILURES = 10; // 工号键：窗口内最大失败次数
+const MAX_IP_FAILURES = 40; // IP 键：窗口内最大失败次数（跨工号累计）
 const PRUNE_INTERVAL_MS = 5 * 60 * 1000;
 
 const hits = new Map<string, number[]>();
@@ -13,6 +20,11 @@ export type LoginLimitDecision = {
   /** 距离解除还需的秒数（blocked 时才有意义） */
   retryAfterSeconds: number;
 };
+
+/** 按键类型取各自上限：ip 键累计的是整个出口的所有用户，阈值放宽 */
+function thresholdFor(key: string): number {
+  return key.startsWith("ip:") ? MAX_IP_FAILURES : MAX_FAILURES;
+}
 
 function countWithinWindow(key: string, now: number): number[] {
   const list = hits.get(key);
@@ -27,7 +39,7 @@ function countWithinWindow(key: string, now: number): number[] {
 export function isLoginBlocked(keys: string[], now: number = Date.now()): LoginLimitDecision {
   for (const key of keys) {
     const list = countWithinWindow(key, now);
-    if (list.length >= MAX_FAILURES) {
+    if (list.length >= thresholdFor(key)) {
       const oldest = list[0];
       return {
         blocked: true,
@@ -102,4 +114,4 @@ export function _resetLoginFailures(): void {
   hits.clear();
 }
 
-export const LOGIN_LIMIT_CONFIG = { WINDOW_MS, MAX_FAILURES } as const;
+export const LOGIN_LIMIT_CONFIG = { WINDOW_MS, MAX_FAILURES, MAX_IP_FAILURES } as const;
