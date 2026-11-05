@@ -1,6 +1,7 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, Info, GraduationCap, Briefcase, Eye } from "lucide-react";
 import { BASE_PATH } from "@/const";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import DashboardLayout from "@/components/DashboardLayout";
 import SemesterSettings from "@/components/SemesterSettings";
@@ -65,6 +66,13 @@ export default function UploadCourses() {
   const { user: authUser } = useAuth();
   // 学期配置面板仅主管/系统管理员可见（接口层 adminProcedure 同权校验）
   const isAdminUser = hasAnyRole(authUser as any, ["graduate_admin", "admin"]);
+  // 越权路由守卫（第23轮补齐，与 UserManagement 同款）：上传课程为主管/管理员专属，
+  // 其他角色手输 /upload-courses 时重定向回工作台，不再渲染后续会 403 的空壳操作页
+  const [, navigate] = useLocation();
+  useEffect(() => {
+    if (authUser && !isAdminUser) navigate("/");
+  }, [authUser, isAdminUser, navigate]);
+  if (authUser && !isAdminUser) return null;
   const utils = trpc.useUtils();
   const [entry, setEntry] = useState<Entry | null>(null);
   const [file, setFile] = useState<File | null>(null);
